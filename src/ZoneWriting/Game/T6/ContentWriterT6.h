@@ -4,6 +4,10 @@
 #include "Writing/ContentWriterBase.h"
 #include "Writing/IContentWritingEntryPoint.h"
 
+#include <vector>
+
+class XAssetInfoGeneric;
+
 namespace T6
 {
     class ContentWriter final : public ContentWriterBase, public IContentWritingEntryPoint
@@ -24,6 +28,7 @@ namespace T6
         XAssetList* varXAssetList;
         XAsset* varXAsset;
         ScriptStringList* varScriptStringList;
+        mutable std::vector<XAssetInfoGeneric*> m_debug_asset_infos;
 
         ZoneOutputOffset varXAssetListWritten;
         ZoneOutputOffset varXAssetWritten;

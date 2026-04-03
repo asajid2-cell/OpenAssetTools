@@ -16,6 +16,7 @@
 #include "ZoneWriting.h"
 
 #include <deque>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -309,6 +310,8 @@ namespace
 
         static bool WriteZoneToFile(IOutputPath& outPath, const Zone& zone)
         {
+            std::fprintf(stderr, "[oat][writezone] open %s\n", zone.m_name.c_str());
+            std::fflush(stderr);
             const auto stream = outPath.Open(std::format("{}.ff", zone.m_name));
             if (!stream)
             {
@@ -318,12 +321,16 @@ namespace
 
             con::info("Building zone \"{}\"", zone.m_name);
 
+            std::fprintf(stderr, "[oat][writezone] write %s\n", zone.m_name.c_str());
+            std::fflush(stderr);
             if (!ZoneWriting::WriteZone(*stream, zone))
             {
                 con::error("Writing zone failed.");
                 return false;
             }
 
+            std::fprintf(stderr, "[oat][writezone] done %s\n", zone.m_name.c_str());
+            std::fflush(stderr);
             con::info("Created zone \"{}\"", zone.m_name);
 
             return true;
@@ -367,7 +374,7 @@ namespace
 
                 PathGameContext gameContext(paths, projectName, zoneDefinition->m_game);
 
-                if (!zoneDefinition->m_assets.empty())
+                if (!zoneDefinition->m_assets.empty() || zoneDefinition->m_map_type != ZoneDefinitionMapType::NONE)
                 {
                     if (!BuildFastFile(paths, projectName, targetName, *zoneDefinition))
                         return false;

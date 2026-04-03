@@ -18,6 +18,11 @@ void ZoneDefinitionParserState::SetGame(const GameId game)
     m_asset_name_resolver = AssetNameResolver(game);
 }
 
+void ZoneDefinitionParserState::SetMapType(const ZoneDefinitionMapType mapType)
+{
+    m_definition->m_map_type = mapType;
+}
+
 namespace
 {
     void AddCurrentObjContainerToDefinitionIfNecessary(ZoneDefinition& zoneDefinition, std::optional<ZoneDefinitionObjContainer>& maybeObjContainer)

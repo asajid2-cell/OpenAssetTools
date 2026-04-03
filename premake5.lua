@@ -100,6 +100,7 @@ include "thirdparty/json.lua"
 include "thirdparty/minilzo.lua"
 include "thirdparty/minizip.lua"
 include "thirdparty/salsa20.lua"
+include "thirdparty/ufbx.lua"
 include "thirdparty/webview.lua"
 include "thirdparty/zlib.lua"
 
@@ -115,6 +116,7 @@ group "ThirdParty"
     minilzo:project()
     minizip:project()
     salsa20:project()
+    ufbx:project()
     zlib:project()
     
     if _OPTIONS["modman"] then

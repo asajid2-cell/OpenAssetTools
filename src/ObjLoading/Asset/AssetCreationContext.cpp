@@ -70,7 +70,8 @@ AssetCreationContext::AssetCreationContext(Zone& zone, const AssetCreatorCollect
       m_forced_asset_pools(std::make_unique<ZoneAssetPools>(zone, zone.m_priority)),
       m_creators(creators),
       m_ignored_asset_lookup(ignoredAssetLookup),
-      m_forced_load_depth(0u)
+      m_forced_load_depth(0u),
+      m_failed(false)
 {
     const auto subAssetTypeCount = IGame::GetGameById(zone.m_game_id)->GetSubAssetTypeCount();
     m_sub_asset_pools.resize(subAssetTypeCount);
@@ -141,6 +142,9 @@ XAssetInfoGeneric* AssetCreationContext::LoadDependencyGeneric(const asset_type_
         // If we are already force loading an asset we should not load its dependencies
         return LoadDefaultAssetDependency(assetType, std::format(",{}", assetName));
     }
+
+    if (assetName.starts_with(','))
+        return LoadDefaultAssetDependency(assetType, assetName);
 
     const auto assetTypeName = m_game.GetAssetTypeName(assetType).value_or("unknown");
 
@@ -261,4 +265,14 @@ XAssetInfoGeneric* AssetCreationContext::ForceLoadDependencyGeneric(const asset_
     }
 
     return nullptr;
+}
+
+void AssetCreationContext::ReportFailure()
+{
+    m_failed = true;
+}
+
+bool AssetCreationContext::HasFailed() const
+{
+    return m_failed;
 }

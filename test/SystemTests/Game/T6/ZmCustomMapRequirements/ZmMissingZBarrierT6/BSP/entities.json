@@ -1,0 +1,13 @@
+{
+  "entities": [
+    {
+      "classname": "worldspawn"
+    },
+    {
+      "classname": "script_model",
+      "origin": "0 0 0",
+      "angles": "0 0 0",
+      "zbarrier": "test_barrier_missing"
+    }
+  ]
+}

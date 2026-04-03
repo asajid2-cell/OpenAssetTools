@@ -1,9 +1,11 @@
 #include "ContentWriterT6.h"
 
 #include "Game/T6/AssetWriterT6.h"
+#include "Pool/XAssetInfo.h"
 #include "Writing/WritingException.h"
 
 #include <cassert>
+#include <cstdio>
 #include <format>
 
 using namespace T6;
@@ -18,6 +20,8 @@ ContentWriter::ContentWriter(const Zone& zone)
 
 void ContentWriter::CreateXAssetList(XAssetList& xAssetList, MemoryManager& memory) const
 {
+    m_debug_asset_infos.clear();
+
     if (!m_zone.m_script_strings.Empty())
     {
         assert(m_zone.m_script_strings.Count() <= SCR_STRING_MAX + 1);
@@ -46,6 +50,7 @@ void ContentWriter::CreateXAssetList(XAssetList& xAssetList, MemoryManager& memo
         auto index = 0u;
         for (auto i = m_zone.m_pools.begin(); i != end; ++i)
         {
+            m_debug_asset_infos.push_back(*i);
             auto& asset = xAssetList.assets[index++];
             asset.type = static_cast<XAssetType>((*i)->m_type);
             asset.header.data = (*i)->m_ptr;
@@ -176,6 +181,10 @@ void ContentWriter::WriteXAssetArray(const bool atStreamStart, const size_t coun
 
     for (size_t index = 0; index < count; index++)
     {
+        const auto* debugAsset = index < m_debug_asset_infos.size() ? m_debug_asset_infos[index] : nullptr;
+        const auto* debugName = debugAsset ? debugAsset->m_name.c_str() : "<unknown>";
+        std::fprintf(stderr, "[oat][writexasset] %zu type=%u name=%s\n", index, static_cast<unsigned>(varXAsset->type), debugName);
+        std::fflush(stderr);
         WriteXAsset(false);
         varXAsset++;
         varXAssetWritten.Inc(8u);

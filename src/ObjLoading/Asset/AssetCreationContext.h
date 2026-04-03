@@ -96,6 +96,9 @@ public:
         return AssetPoolIterators<SubAsset_t>(*m_sub_asset_pools[SubAsset_t::EnumEntry]);
     }
 
+    void ReportFailure();
+    [[nodiscard]] bool HasFailed() const;
+
 private:
     [[nodiscard]] XAssetInfoGeneric* LoadDefaultAssetDependency(asset_type_t assetType, const std::string& assetName);
 
@@ -107,6 +110,7 @@ private:
     const IgnoredAssetLookup* m_ignored_asset_lookup;
 
     unsigned m_forced_load_depth;
+    bool m_failed;
 };
 
 #include "AssetCreatorCollection.h"

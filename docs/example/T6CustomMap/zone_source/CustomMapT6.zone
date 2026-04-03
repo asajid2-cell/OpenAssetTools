@@ -1,0 +1,10 @@
+// Minimal example for a T6 zombies custom-map fastfile built from imported BSP source data.
+// Prefer conventional zm_* naming for zombie maps.
+>game,T6
+>name,zm_example
+>map,zm
+
+// Add extra assets or scripts here when the map needs them in addition to the
+// conventional maps/mp and clientscripts/mp script set loaded by the BSP linker.
+// rawfile,maps/mp/zm_example.gsc
+// rawfile,clientscripts/mp/zm_example.csc

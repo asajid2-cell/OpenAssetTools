@@ -297,6 +297,10 @@ end
 function ZoneCode:project()
 	local folder = ProjectFolder()
 	local includes = Includes:create()
+	local projectOutputFolder = path.translate(path.getabsolute(path.join(BuildFolder(), "src", self:name())), "\\")
+	local zoneCodeGeneratorExecutable = path.translate(
+		path.getabsolute(path.join(BuildFolder(), "buildtools", "%{cfg.buildcfg}_%{cfg.platform}", ExecutableByOs('ZoneCodeGenerator'))),
+		"\\")
 
 	project(self:name())
         targetdir(TargetDirectoryLib)
@@ -315,31 +319,31 @@ function ZoneCode:project()
 			}
 		}
 
-        self:include(includes)
-        ZoneCodeGenerator:use()
+		self:include(includes)
+		ZoneCodeGenerator:use()
 
-        filter "files:**.gen"
-            buildmessage "Generating ZoneCode for game %{file.basename}"
-            buildcommands {
-                '"' .. TargetDirectoryBuildTools .. '/' .. ExecutableByOs('ZoneCodeGenerator') .. '"' 
-                    .. ' --no-color'
-                    .. ' -h "' .. path.join(path.getabsolute(ProjectFolder()), 'ZoneCode/Game/%{file.basename}/%{file.basename}_ZoneCode.h') .. '"'
-                    .. ' -c "' .. path.join(path.getabsolute(ProjectFolder()), 'ZoneCode/Game/%{file.basename}/%{file.basename}_Commands.txt') .. '"'
-                    .. ' -o "%{wks.location}/src/ZoneCode/Game/%{file.basename}"'
-                    .. ' --build-log "%{wks.location}/src/ZoneCode/Game/%{file.basename}.log"'
-                    .. ' -g ZoneLoad'
-                    .. ' -g ZoneMark'
-                    .. ' -g ZoneWrite'
-                    .. ' -g AssetStructTests'
-            }
-            buildinputs {
-                path.join(ProjectFolder(), "ZoneCode/Game/%{file.basename}/%{file.basename}_ZoneCode.h"),
-                path.join(ProjectFolder(), "ZoneCode/Game/%{file.basename}/%{file.basename}_Commands.txt"),
-                path.join(ProjectFolder(), "Common/Game/%{file.basename}/%{file.basename}_Assets.h"),
-                TargetDirectoryBuildTools .. "/" .. ExecutableByOs('ZoneCodeGenerator')
-            }
-            buildoutputs {
-                "%{wks.location}/src/ZoneCode/Game/%{file.basename}.log"
-            }
-        filter {}
+		filter "files:**.gen"
+			buildmessage "Generating ZoneCode for game %{file.basename}"
+			buildcommands {
+				'"' .. zoneCodeGeneratorExecutable .. '"'
+					.. ' --no-color'
+					.. ' -h "' .. path.join(path.getabsolute(ProjectFolder()), 'ZoneCode/Game/%{file.basename}/%{file.basename}_ZoneCode.h') .. '"'
+					.. ' -c "' .. path.join(path.getabsolute(ProjectFolder()), 'ZoneCode/Game/%{file.basename}/%{file.basename}_Commands.txt') .. '"'
+					.. ' -o "' .. path.translate(path.join(projectOutputFolder, "Game", "%{file.basename}"), "\\") .. '"'
+					.. ' --build-log "' .. path.translate(path.join(projectOutputFolder, "%{file.basename}.log"), "\\") .. '"'
+					.. ' -g ZoneLoad'
+					.. ' -g ZoneMark'
+					.. ' -g ZoneWrite'
+					.. ' -g AssetStructTests'
+			}
+			buildinputs {
+				path.join(ProjectFolder(), "ZoneCode/Game/%{file.basename}/%{file.basename}_ZoneCode.h"),
+				path.join(ProjectFolder(), "ZoneCode/Game/%{file.basename}/%{file.basename}_Commands.txt"),
+				path.join(ProjectFolder(), "Common/Game/%{file.basename}/%{file.basename}_Assets.h"),
+				zoneCodeGeneratorExecutable
+			}
+			buildoutputs {
+				path.translate(path.join(projectOutputFolder, "%{file.basename}.log"), "\\")
+			}
+		filter {}
 end

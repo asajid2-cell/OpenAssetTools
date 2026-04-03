@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <format>
 #include <sstream>
 
 namespace test::zone::definition::zone_definition_stream
@@ -280,6 +281,53 @@ material,test_material
         REQUIRE(iterator->second == "code_post_gfx");
         ++iterator;
         REQUIRE(iterator == ipakReadResults.second);
+    }
+
+    TEST_CASE("ZoneDefinitionInputStream: Ensure can define map type", "[zonedefinition]")
+    {
+        const auto mapType = GENERATE(table<ZoneDefinitionMapType, const char*>({
+            {ZoneDefinitionMapType::SP, "sp"},
+            {ZoneDefinitionMapType::MP, "mp"},
+            {ZoneDefinitionMapType::ZM, "zm"},
+        }));
+
+        std::istringstream inputData(std::format(
+            R"sampledata(
+// Call Of Duty: Black Ops II
+>game,T6
+>name,test_mod
+>map,{}
+
+material,test_material
+)sampledata",
+            std::get<1>(mapType)));
+
+        MockSearchPath mockSearchPath;
+        ZoneDefinitionInputStream inputStream(inputData, "test", "test.zone", mockSearchPath);
+
+        const auto result = inputStream.ReadDefinition();
+        REQUIRE(result);
+
+        REQUIRE(result->m_map_type == std::get<0>(mapType));
+        REQUIRE(result->m_assets.size() == 1u);
+    }
+
+    TEST_CASE("ZoneDefinitionInputStream: Invalid map type fails parsing", "[zonedefinition]")
+    {
+        std::istringstream inputData(R"sampledata(
+// Call Of Duty: Black Ops II
+>game,T6
+>name,test_mod
+>map,coop
+
+material,test_material
+)sampledata");
+
+        MockSearchPath mockSearchPath;
+        ZoneDefinitionInputStream inputStream(inputData, "test", "test.zone", mockSearchPath);
+
+        const auto result = inputStream.ReadDefinition();
+        REQUIRE_FALSE(result);
     }
 
     TEST_CASE("ZoneDefinitionInputStream: Ensure can define IWD", "[zonedefinition]")
