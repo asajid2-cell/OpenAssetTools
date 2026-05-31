@@ -142,6 +142,161 @@ namespace
         return result;
     }
 
+    std::string ClipMaterialsToString(const T6::clipMap_t& clipMap)
+    {
+        if (!clipMap.info.materials || clipMap.info.numMaterials <= 0)
+            return "(none)";
+
+        std::string result;
+        auto appendMaterial = [&](const std::string& label, const unsigned int materialIndex)
+        {
+            if (materialIndex >= clipMap.info.numMaterials)
+                return;
+
+            const auto& material = clipMap.info.materials[materialIndex];
+            if (!result.empty())
+                result += "; ";
+
+            result += std::format("{}:{} name={} surface={} contents={}",
+                                  label,
+                                  materialIndex,
+                                  material.name ? material.name : "(none)",
+                                  material.surfaceFlags,
+                                  material.contentFlags);
+        };
+
+        const auto firstCount = std::min(clipMap.info.numMaterials, 8u);
+        for (auto materialIndex = 0u; materialIndex < firstCount; materialIndex++)
+            appendMaterial(std::format("{}", materialIndex), materialIndex);
+
+        if (clipMap.aabbTrees && clipMap.aabbTreeCount > 0)
+        {
+            const auto aabbCount = std::min(clipMap.aabbTreeCount, 8);
+            for (auto aabbIndex = 0; aabbIndex < aabbCount; aabbIndex++)
+            {
+                const auto materialIndex = clipMap.aabbTrees[aabbIndex].materialIndex;
+                if (materialIndex < firstCount)
+                    continue;
+
+                appendMaterial(std::format("aabb{}", aabbIndex), materialIndex);
+            }
+        }
+
+        return result;
+    }
+
+    std::string ClipBrushesToString(const T6::clipMap_t& clipMap)
+    {
+        if (!clipMap.info.brushes || clipMap.info.numBrushes <= 0)
+            return "(none)";
+
+        std::string result;
+        auto appendBrush = [&](const unsigned int brushIndex)
+        {
+            const auto& brush = clipMap.info.brushes[brushIndex];
+            if (!result.empty())
+                result += "; ";
+
+            result += std::format(
+                "{}:contents={} numsides={} numverts={} bounds={} -> {} axialX=({}/{}, {}/{}) axialY=({}/{}, {}/{}) axialZ=({}/{}, {}/{}) brushContents={} brushBoundsMid={} brushBoundsHalf={}",
+                brushIndex,
+                brush.contents,
+                brush.numsides,
+                brush.numverts,
+                Vec3ToString(brush.mins),
+                Vec3ToString(brush.maxs),
+                brush.axial_cflags[0][0],
+                brush.axial_sflags[0][0],
+                brush.axial_cflags[1][0],
+                brush.axial_sflags[1][0],
+                brush.axial_cflags[0][1],
+                brush.axial_sflags[0][1],
+                brush.axial_cflags[1][1],
+                brush.axial_sflags[1][1],
+                brush.axial_cflags[0][2],
+                brush.axial_sflags[0][2],
+                brush.axial_cflags[1][2],
+                brush.axial_sflags[1][2],
+                clipMap.info.brushContents ? clipMap.info.brushContents[brushIndex] : 0,
+                clipMap.info.brushBounds ? Vec3ToString(clipMap.info.brushBounds[brushIndex].midPoint) : "(none)",
+                clipMap.info.brushBounds ? Vec3ToString(clipMap.info.brushBounds[brushIndex].halfSize) : "(none)");
+        };
+
+        const auto firstCount = std::min<std::uint16_t>(clipMap.info.numBrushes, 8u);
+        for (auto brushIndex = 0u; brushIndex < firstCount; brushIndex++)
+            appendBrush(brushIndex);
+
+        unsigned int specialCount = 0u;
+        for (auto brushIndex = firstCount; brushIndex < clipMap.info.numBrushes && specialCount < 8u; brushIndex++)
+        {
+            const auto& brush = clipMap.info.brushes[brushIndex];
+            if (brush.contents != 134414848 && brush.contents != 2048)
+                continue;
+
+            appendBrush(brushIndex);
+            specialCount++;
+        }
+
+        return result;
+    }
+
+    std::string PathNodesToString(const T6::PathData& path)
+    {
+        if (!path.nodes || path.nodeCount <= 0)
+            return "(none)";
+
+        std::string result;
+        const auto nodeCount = std::min(path.nodeCount, 4u);
+        for (auto nodeIndex = 0u; nodeIndex < nodeCount; nodeIndex++)
+        {
+            const auto& node = path.nodes[nodeIndex];
+            if (!result.empty())
+                result += "; ";
+
+            std::string links;
+            if (node.constant.Links && node.constant.totalLinkCount > 0)
+            {
+                const auto linkCount = std::min<unsigned int>(node.constant.totalLinkCount, 8u);
+                for (auto linkIndex = 0u; linkIndex < linkCount; linkIndex++)
+                {
+                    const auto& link = node.constant.Links[linkIndex];
+                    if (!links.empty())
+                        links += ", ";
+
+                    links += std::format(
+                        "{}:node={} dist={} flags={} neg={} disc={} bad=[{},{},{},{},{}]",
+                        linkIndex,
+                        link.nodeNum,
+                        link.fDist,
+                        static_cast<int>(link.flags),
+                        static_cast<int>(link.negotiationLink),
+                        static_cast<int>(link.disconnectCount),
+                        static_cast<int>(link.ubBadPlaceCount[0]),
+                        static_cast<int>(link.ubBadPlaceCount[1]),
+                        static_cast<int>(link.ubBadPlaceCount[2]),
+                        static_cast<int>(link.ubBadPlaceCount[3]),
+                        static_cast<int>(link.ubBadPlaceCount[4]));
+                }
+            }
+            else
+                links = "(none)";
+
+            result += std::format(
+                "{}:type={} origin={} angle={} radius={} constLinks={} dynLinks={} overlap={} links=[{}]",
+                nodeIndex,
+                static_cast<int>(node.constant.type),
+                Vec3ToString(node.constant.vOrigin),
+                node.constant.fAngle,
+                node.constant.fRadius,
+                node.constant.totalLinkCount,
+                node.dynamic.wLinkCount,
+                node.dynamic.wOverlapCount,
+                links);
+        }
+
+        return result;
+    }
+
     void PrintT6MapAssetDetails(const XAssetInfoGeneric& asset)
     {
         using namespace T6;
@@ -324,7 +479,7 @@ namespace
                 "boxModelBounds={} -> {} boxModelLeafBounds={} -> {} boxModelLeaf=(cluster={} leafBrushNode={} contents=({}, {}) aabbs={} firstAabb={}) "
                 "boxBrush=(contents={} sides={} verts={} mins={} maxs={} axial0=({}, {}) axial1=({}, {})) "
                 "pInfo={} mapEnts={} dynEntCount=({}, {}, {}, {}) originalDynEntCount={} constraints={} maxRopes={} checksum={} "
-                "leafSamples=[{}] aabbSamples=[{}] leafBrushNodeSamples=[{}]",
+                "clipMaterialSamples=[{}] leafSamples=[{}] aabbSamples=[{}] leafBrushNodeSamples=[{}] brushSamples=[{}]",
                 clipMap->isInUse,
                 clipMap->numStaticModels,
                 clipMap->vertCount,
@@ -409,9 +564,11 @@ namespace
                 clipMap->num_constraints,
                 clipMap->max_ropes,
                 clipMap->checksum,
+                ClipMaterialsToString(*clipMap),
                 ClipLeavesToString(*clipMap),
                 ClipAabbsToString(*clipMap),
-                ClipLeafBrushNodesToString(*clipMap));
+                ClipLeafBrushNodesToString(*clipMap),
+                ClipBrushesToString(*clipMap));
         }
         else if (asset.m_type == ASSET_TYPE_GAMEWORLD_SP)
         {
@@ -421,7 +578,7 @@ namespace
             const auto* firstTree = path.nodeTreeCount > 0 && path.nodeTree ? &path.nodeTree[0] : nullptr;
             con::debug(
                 "  T6 gameworldsp details: nodes={} originalNodes={} visBytes={} smoothBytes={} nodeTrees={} pathVis={} smoothCache={} "
-                "firstNode=(type={} origin={} radius={} links={}) firstTree=(axis={} dist={} leafCount={})",
+                "firstNode=(type={} origin={} radius={} links={}) firstTree=(axis={} dist={} leafCount={}) pathSamples=[{}]",
                 path.nodeCount,
                 path.originalNodeCount,
                 path.visBytes,
@@ -435,7 +592,8 @@ namespace
                 firstNode ? firstNode->constant.totalLinkCount : 0,
                 firstTree ? firstTree->axis : 0,
                 firstTree ? firstTree->dist : 0.0f,
-                firstTree && firstTree->axis < 0 ? firstTree->u.s.nodeCount : 0);
+                firstTree && firstTree->axis < 0 ? firstTree->u.s.nodeCount : 0,
+                PathNodesToString(path));
         }
         else if (asset.m_type == ASSET_TYPE_GAMEWORLD_MP)
         {
@@ -445,7 +603,7 @@ namespace
             const auto* firstTree = path.nodeTreeCount > 0 && path.nodeTree ? &path.nodeTree[0] : nullptr;
             con::debug(
                 "  T6 gameworldmp details: nodes={} originalNodes={} visBytes={} smoothBytes={} nodeTrees={} pathVis={} smoothCache={} "
-                "firstNode=(type={} origin={} radius={} links={}) firstTree=(axis={} dist={} leafCount={})",
+                "firstNode=(type={} origin={} radius={} links={}) firstTree=(axis={} dist={} leafCount={}) pathSamples=[{}]",
                 path.nodeCount,
                 path.originalNodeCount,
                 path.visBytes,
@@ -459,7 +617,8 @@ namespace
                 firstNode ? firstNode->constant.totalLinkCount : 0,
                 firstTree ? firstTree->axis : 0,
                 firstTree ? firstTree->dist : 0.0f,
-                firstTree && firstTree->axis < 0 ? firstTree->u.s.nodeCount : 0);
+                firstTree && firstTree->axis < 0 ? firstTree->u.s.nodeCount : 0,
+                PathNodesToString(path));
         }
         else if (asset.m_type == ASSET_TYPE_MAP_ENTS)
         {

@@ -331,13 +331,13 @@ namespace map
         const auto colScene = LoadFbxScene(searchPath, GetT6MapSourceFileName("map_col.fbx"), false);
         if (colScene)
         {
-            if (!LoadWorldGeometry(*colScene, geometry->m_collision_world, false))
+            if (!LoadWorldGeometry(*colScene, geometry->m_collision_world, true))
                 return nullptr;
         }
         else
         {
             con::warn("No T6 custom map collision FBX found; using map_gfx.fbx for collision geometry.");
-            if (!LoadWorldGeometry(*gfxScene, geometry->m_collision_world, false))
+            if (!LoadWorldGeometry(*gfxScene, geometry->m_collision_world, true))
                 return nullptr;
         }
 

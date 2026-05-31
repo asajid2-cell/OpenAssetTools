@@ -38,7 +38,7 @@ namespace
     constexpr auto DEFAULT_SUN_DIRECTION_Y = -0.841f;
     constexpr auto DEFAULT_SUN_DIRECTION_Z = -0.485f;
 
-    constexpr const char* FALLBACK_SURFACE_MATERIAL = "wpc/wood_planks_old_white";
+    constexpr const char* FALLBACK_SURFACE_MATERIAL = "wpc/concrete_sidewalk_dirty";
     constexpr const char* REFLECTION_PROBE_IMAGE_SUFFIX = "reflection_probe0";
     constexpr const char* LIGHTMAP_PRIMARY_IMAGE_SUFFIX = "lightmap0";
     constexpr const char* LIGHTMAP_SECONDARY_IMAGE_SUFFIX = "lightmap0_secondary";
@@ -344,8 +344,15 @@ namespace
             if (material->Asset()->info.drawSurf.packed == 0u)
             {
                 con::warn(
-                    "T6 custom map surface material \"{}\" has a zero drawSurf. The surface may not render in-game; use a renderable T6 world material.",
-                    materialName);
+                    "T6 custom map surface material \"{}\" has a zero drawSurf; using world-material fallback \"{}\".",
+                    materialName,
+                    FALLBACK_SURFACE_MATERIAL);
+
+                if (materialName != FALLBACK_SURFACE_MATERIAL)
+                    return LoadFallbackSurfaceMaterial(context);
+
+                con::error("T6 custom map fallback surface material \"{}\" has a zero drawSurf.", FALLBACK_SURFACE_MATERIAL);
+                return nullptr;
             }
 
             if (IsKnownIncompatibleWorldSurfaceMaterial(*material->Asset()))

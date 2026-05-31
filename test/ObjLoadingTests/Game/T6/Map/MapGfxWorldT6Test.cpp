@@ -13,7 +13,7 @@ using namespace T6;
 
 namespace
 {
-    constexpr const char* WORLD_FALLBACK_MATERIAL = "wpc/wood_planks_old_white";
+    constexpr const char* WORLD_FALLBACK_MATERIAL = "wpc/concrete_sidewalk_dirty";
     constexpr const char* WORLD_TECHNIQUE_SET = "wpc_lit_sm_r0c0n0_80fe30wz";
 
     void AddMaterial(AssetCreationContext& context,
@@ -44,6 +44,18 @@ namespace
         auto* image = memory.Alloc<GfxImage>();
         image->name = memory.Dup(name.c_str());
         context.AddAsset<AssetImage>(name, image);
+    }
+
+    void AddZeroDrawSurfMaterial(AssetCreationContext& context, MemoryManager& memory, const std::string& name)
+    {
+        auto* material = memory.Alloc<Material>();
+        std::memset(material, 0, sizeof(Material));
+        material->info.name = memory.Dup(name.c_str());
+        auto* techniqueSet = memory.Alloc<MaterialTechniqueSet>();
+        std::memset(techniqueSet, 0, sizeof(MaterialTechniqueSet));
+        techniqueSet->name = memory.Dup(WORLD_TECHNIQUE_SET);
+        material->techniqueSet = techniqueSet;
+        context.AddAsset<AssetMaterial>(name, material);
     }
 
     void AssertRuntimeReadyMapImage(const GfxImage* image, const MapType mapType, const ImageCategory category)
@@ -233,6 +245,37 @@ namespace
         AddImage(context, memory, "$outdoor");
 
         REQUIRE(map::CreateGfxWorldT6(memory, searchPath, context, *geometry) == nullptr);
+    }
+
+    TEST_CASE("T6 map GfxWorld falls back for zero-drawSurf world materials", "[t6][map]")
+    {
+        const auto testPath = oat::paths::GetTestDirectory() / "SystemTests/Game/T6/CustomMapPlumbing/ValidSourceMarkers";
+        SearchPathFilesystem searchPath(testPath.string());
+
+        auto geometry = map::LoadMapGeometryT6(searchPath, "zm_custom_map_shell", ZoneDefinitionMapType::ZM);
+        REQUIRE(geometry);
+        REQUIRE(!geometry->m_gfx_world.m_surfaces.empty());
+
+        geometry->m_gfx_world.m_surfaces[0].m_material = {map::T6MapMaterialType::Texture, "wpc/zero_draw_material"};
+
+        Zone zone("zm_custom_map_shell", 0, GameId::T6, GamePlatform::PC);
+        AssetCreatorCollection creatorCollection(zone);
+        IgnoredAssetLookup ignoredAssetLookup;
+        AssetCreationContext context(zone, &creatorCollection, &ignoredAssetLookup);
+        MemoryManager memory;
+
+        AddZeroDrawSurfMaterial(context, memory, "wpc/zero_draw_material");
+        AddMaterial(context, memory, WORLD_FALLBACK_MATERIAL);
+        AddImage(context, memory, "reflection_probe0");
+        AddImage(context, memory, "lightmap0_secondary");
+        AddImage(context, memory, "$outdoor");
+
+        const auto* gfxWorld = map::CreateGfxWorldT6(memory, searchPath, context, *geometry);
+
+        REQUIRE(gfxWorld != nullptr);
+        REQUIRE(gfxWorld->surfaceCount == 1);
+        REQUIRE(gfxWorld->dpvs.surfaces[0].material != nullptr);
+        REQUIRE(std::string(gfxWorld->dpvs.surfaces[0].material->info.name) == WORLD_FALLBACK_MATERIAL);
     }
 
     TEST_CASE("T6 map GfxWorld generates an outdoor image when the dependency is ignored", "[t6][map]")

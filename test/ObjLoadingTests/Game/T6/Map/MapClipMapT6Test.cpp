@@ -9,6 +9,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+
 using namespace T6;
 
 namespace
@@ -52,7 +54,7 @@ namespace
         MemoryManager memory;
 
         AddMaterial(context, memory, "streaming_temp_image_0");
-        AddMaterial(context, memory, "wpc/wood_planks_old_white");
+        AddMaterial(context, memory, "wpc/concrete_sidewalk_dirty");
         AddImage(context, memory, "reflection_probe0");
         AddImage(context, memory, "lightmap0_secondary");
         AddImage(context, memory, "$outdoor");
@@ -91,8 +93,9 @@ namespace
         REQUIRE(clipMap->leafs[1].mins.z <= clipMap->leafs[1].maxs.z);
         REQUIRE((clipMap->leafs[1].mins.x != clipMap->leafs[1].maxs.x || clipMap->leafs[1].mins.y != clipMap->leafs[1].maxs.y
                  || clipMap->leafs[1].mins.z != clipMap->leafs[1].maxs.z));
-        REQUIRE(clipMap->leafs[1].terrainContents == 1);
-        REQUIRE(clipMap->leafs[1].brushContents == 134414848);
+        REQUIRE(clipMap->leafs[1].cluster == -1);
+        REQUIRE(clipMap->leafs[1].terrainContents == 0);
+        REQUIRE(clipMap->leafs[1].brushContents == 134414849);
         REQUIRE(clipMap->cmodels[0].leaf.leafBrushNode == 0);
         REQUIRE(clipMap->cmodels[0].leaf.mins.x == 0.0f);
         REQUIRE(clipMap->cmodels[0].leaf.mins.y == 0.0f);
@@ -104,24 +107,26 @@ namespace
         REQUIRE(clipMap->aabbTreeCount > 0);
         REQUIRE(clipMap->info.numMaterials == 1u);
         REQUIRE(clipMap->info.materials != nullptr);
-        REQUIRE(std::string(clipMap->info.materials[0].name) == "light_demote_hint");
-        REQUIRE(clipMap->info.materials[0].surfaceFlags == 278656);
-        REQUIRE(clipMap->info.materials[0].contentFlags == 134217728);
+        REQUIRE(std::string(clipMap->info.materials[0].name) == "cub_ter_sand01_blend");
+        REQUIRE(clipMap->info.materials[0].surfaceFlags == 19136768);
+        REQUIRE(clipMap->info.materials[0].contentFlags == 1);
         REQUIRE(clipMap->info.leafbrushNodesCount == 2u);
         REQUIRE(clipMap->info.leafbrushNodes != nullptr);
-        REQUIRE(clipMap->info.numLeafBrushes == 1u);
+        REQUIRE(clipMap->info.numLeafBrushes > 0u);
         REQUIRE(clipMap->info.leafbrushes != nullptr);
-        REQUIRE(clipMap->info.numBrushes == 1u);
+        REQUIRE(clipMap->info.numBrushes == clipMap->info.numLeafBrushes);
         REQUIRE(clipMap->info.brushes != nullptr);
-        REQUIRE(clipMap->info.brushBounds != nullptr);
-        REQUIRE(clipMap->info.brushContents != nullptr);
+        REQUIRE(clipMap->info.brushBounds == nullptr);
+        REQUIRE(clipMap->info.brushContents == nullptr);
+        REQUIRE(clipMap->info.numBrushVerts == static_cast<unsigned int>(clipMap->info.numBrushes) * 8u);
+        REQUIRE(clipMap->info.brushVerts != nullptr);
         REQUIRE(clipMap->info.leafbrushNodes[0].axis == 0);
         REQUIRE(clipMap->info.leafbrushNodes[0].leafBrushCount == 0);
         REQUIRE(clipMap->info.leafbrushNodes[0].contents == 0);
         REQUIRE(clipMap->leafs[1].leafBrushNode == 1);
         REQUIRE(clipMap->info.leafbrushNodes[1].axis == 0);
-        REQUIRE(clipMap->info.leafbrushNodes[1].leafBrushCount == 1);
-        REQUIRE(clipMap->info.leafbrushNodes[1].contents == 134414848);
+        REQUIRE(clipMap->info.leafbrushNodes[1].leafBrushCount == static_cast<std::int16_t>(clipMap->info.numLeafBrushes));
+        REQUIRE(clipMap->info.leafbrushNodes[1].contents == 134414849);
         REQUIRE(clipMap->info.leafbrushNodes[1].data.leaf.brushes == clipMap->info.leafbrushes);
         REQUIRE(clipMap->info.leafbrushNodes[1].data.leaf.brushes[0] == 0u);
         REQUIRE(clipMap->box_model.leaf.leafBrushNode == 1);
@@ -139,9 +144,30 @@ namespace
                 REQUIRE(clipMap->box_brush->axial_sflags[side][axis] == -1);
             }
         }
-        REQUIRE(clipMap->info.brushes[0].contents == 134414848);
-        REQUIRE(clipMap->info.brushContents[0] == 134414848);
+        REQUIRE(clipMap->info.brushes[0].contents == 134414849);
+        REQUIRE(clipMap->info.brushes[0].mins.x < clipMap->info.brushes[0].maxs.x);
+        REQUIRE(clipMap->info.brushes[0].mins.y < clipMap->info.brushes[0].maxs.y);
+        REQUIRE(clipMap->info.brushes[0].mins.z < clipMap->info.brushes[0].maxs.z);
+        REQUIRE(clipMap->info.brushes[0].numverts == 8u);
+        REQUIRE(clipMap->info.brushes[0].verts == clipMap->info.brushVerts);
+        REQUIRE(clipMap->info.brushes[0].verts[0].x == clipMap->info.brushes[0].mins.x);
+        REQUIRE(clipMap->info.brushes[0].verts[0].y == clipMap->info.brushes[0].mins.y);
+        REQUIRE(clipMap->info.brushes[0].verts[0].z == clipMap->info.brushes[0].mins.z);
+        REQUIRE(clipMap->info.brushes[0].verts[7].x == clipMap->info.brushes[0].maxs.x);
+        REQUIRE(clipMap->info.brushes[0].verts[7].y == clipMap->info.brushes[0].maxs.y);
+        REQUIRE(clipMap->info.brushes[0].verts[7].z == clipMap->info.brushes[0].maxs.z);
+        for (auto side = 0u; side < 2u; side++)
+        {
+            for (auto axis = 0u; axis < 3u; axis++)
+            {
+                REQUIRE(clipMap->info.brushes[0].axial_cflags[side][axis] == 134414849);
+                REQUIRE(clipMap->info.brushes[0].axial_sflags[side][axis] == 278688);
+            }
+        }
         REQUIRE(clipMap->triEdgeIsWalkable != nullptr);
+        const auto walkableEdgeSize = (3 * clipMap->triCount + 31) / 32 * 4;
+        for (auto walkableEdgeByte = 0; walkableEdgeByte < walkableEdgeSize; walkableEdgeByte++)
+            REQUIRE(static_cast<unsigned char>(clipMap->triEdgeIsWalkable[walkableEdgeByte]) == 0xFFu);
         REQUIRE(clipMap->originalDynEntCount == 0u);
         REQUIRE(clipMap->dynEntCount[0] == 256u);
         REQUIRE(clipMap->dynEntClientList[0] != nullptr);

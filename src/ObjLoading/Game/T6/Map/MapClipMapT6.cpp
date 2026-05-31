@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -16,16 +17,21 @@ namespace
     constexpr auto MAX_COLLISION_VERTS = std::numeric_limits<std::uint16_t>::max();
     constexpr auto MAX_AABB_TREE_CHILDREN = 128u;
     constexpr auto MAX_NODE_SIZE = 512.0f;
-    constexpr auto MATERIAL_SURFACE_FLAGS = 278656;
-    constexpr auto MATERIAL_CONTENT_FLAGS = 134217728;
-    constexpr auto LEAF_TERRAIN_CONTENTS = 1;
-    constexpr auto GENERATED_LEAF_BRUSH_CONTENTS = 134414848;
+    constexpr auto MATERIAL_SURFACE_FLAGS = 19136768;
+    constexpr auto MATERIAL_CONTENT_FLAGS = 1;
+    constexpr auto LEAF_TERRAIN_CONTENTS = 0;
+    constexpr auto GENERATED_COLLISION_LEAF_CLUSTER = -1;
+    constexpr auto GENERATED_LEAF_BRUSH_CONTENTS = 134414849;
+    constexpr auto GENERATED_LEAF_BRUSH_SURFACE_FLAGS = 278688;
     constexpr auto TERMINAL_LEAF_BRUSH_AXIS = 0;
     constexpr auto GENERATED_LEAF_BRUSH_NODE = 1;
     constexpr auto DEFAULT_DYN_ENTITY_COUNT = 256u;
     constexpr auto COLLISION_BOUNDS_EPSILON = 0.125f;
+    constexpr auto GENERATED_FLOOR_BRUSH_THICKNESS = 16.0f;
+    constexpr auto GENERATED_FLOOR_BRUSH_SIDE_EPSILON = 0.5f;
+    constexpr auto GENERATED_FLOOR_MIN_ABS_NORMAL_Z = 0.5f;
     constexpr auto GENERATED_VISIBILITY_BYTES = 136;
-    constexpr const char* DEFAULT_CLIP_MATERIAL = "light_demote_hint";
+    constexpr const char* DEFAULT_CLIP_MATERIAL = "cub_ter_sand01_blend";
 
     enum class PlaneAxis : std::uint8_t
     {
@@ -223,6 +229,12 @@ namespace
         std::vector<CollisionAabbTree> m_aabb_trees;
     };
 
+    struct GeneratedBrushVolume
+    {
+        vec3_t m_mins;
+        vec3_t m_maxs;
+    };
+
     template<typename T> T* AllocZeroed(MemoryManager& memory, const std::size_t count = 1u)
     {
         auto* result = memory.Alloc<T>(count);
@@ -274,6 +286,29 @@ namespace
         const auto y = p2.y - p1.y;
         const auto z = p2.z - p1.z;
         return std::sqrt((x * x) + (y * y) + (z * z));
+    }
+
+    [[nodiscard]] vec3_t Subtract(const vec3_t& p1, const vec3_t& p2)
+    {
+        vec3_t result;
+        result.x = p1.x - p2.x;
+        result.y = p1.y - p2.y;
+        result.z = p1.z - p2.z;
+        return result;
+    }
+
+    [[nodiscard]] vec3_t Cross(const vec3_t& p1, const vec3_t& p2)
+    {
+        vec3_t result;
+        result.x = (p1.y * p2.z) - (p1.z * p2.y);
+        result.y = (p1.z * p2.x) - (p1.x * p2.z);
+        result.z = (p1.x * p2.y) - (p1.y * p2.x);
+        return result;
+    }
+
+    [[nodiscard]] float Length(const vec3_t& vector)
+    {
+        return std::sqrt((vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z));
     }
 
     void LoadDynEnts(MemoryManager& memory, clipMap_t& clipMap)
@@ -488,7 +523,7 @@ namespace
         if (tree.m_is_leaf)
         {
             cLeaf_s leaf{};
-            leaf.cluster = 0;
+            leaf.cluster = GENERATED_COLLISION_LEAF_CLUSTER;
             leaf.brushContents = GENERATED_LEAF_BRUSH_CONTENTS;
             leaf.terrainContents = LEAF_TERRAIN_CONTENTS;
             leaf.mins = tree.m_mins;
@@ -600,32 +635,131 @@ namespace
         return true;
     }
 
-    void LoadEmptyLeafBrushTree(MemoryManager& memory, clipMap_t& clipMap)
+    bool BuildGeneratedBrushVolumes(const clipMap_t& clipMap, std::vector<GeneratedBrushVolume>& brushVolumes)
     {
+        if (clipMap.vertCount == 0u || !clipMap.verts || clipMap.triCount <= 0 || !clipMap.triIndices)
+            return false;
+
+        vec3_t worldMins = clipMap.verts[0];
+        vec3_t worldMaxs = clipMap.verts[0];
+        for (auto vertexIndex = 1u; vertexIndex < clipMap.vertCount; vertexIndex++)
+            UpdateAabbWithPoint(clipMap.verts[vertexIndex], worldMins, worldMaxs);
+
+        for (auto triIndex = 0; triIndex < clipMap.triCount; triIndex++)
+        {
+            const auto& tri = clipMap.triIndices[triIndex];
+            const auto& p0 = clipMap.verts[tri[0]];
+            const auto& p1 = clipMap.verts[tri[1]];
+            const auto& p2 = clipMap.verts[tri[2]];
+            const auto normal = Cross(Subtract(p1, p0), Subtract(p2, p0));
+            const auto normalLength = Length(normal);
+            if (normalLength <= 0.0f)
+                continue;
+
+            const auto absNormalZ = std::fabs(normal.z / normalLength);
+            if (absNormalZ < GENERATED_FLOOR_MIN_ABS_NORMAL_Z)
+                continue;
+
+            vec3_t mins = p0;
+            vec3_t maxs = p0;
+            UpdateAabbWithPoint(p1, mins, maxs);
+            UpdateAabbWithPoint(p2, mins, maxs);
+
+            mins.x -= GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            mins.y -= GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            maxs.x += GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            maxs.y += GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+
+            const auto floorTop = maxs.z;
+            mins.z = floorTop - GENERATED_FLOOR_BRUSH_THICKNESS;
+            maxs.z = floorTop;
+
+            brushVolumes.emplace_back(GeneratedBrushVolume{mins, maxs});
+        }
+
+        if (brushVolumes.empty())
+        {
+            auto mins = worldMins;
+            auto maxs = worldMaxs;
+            mins.x -= GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            mins.y -= GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            maxs.x += GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            maxs.y += GENERATED_FLOOR_BRUSH_SIDE_EPSILON;
+            maxs.z = worldMins.z;
+            mins.z = maxs.z - GENERATED_FLOOR_BRUSH_THICKNESS;
+            brushVolumes.emplace_back(GeneratedBrushVolume{mins, maxs});
+        }
+
+        if (brushVolumes.size() > static_cast<std::size_t>(std::numeric_limits<std::int16_t>::max()))
+        {
+            con::error("T6 custom map generated {} floor brushes, exceeding the terminal leaf-brush node limit.", brushVolumes.size());
+            return false;
+        }
+
+        return true;
+    }
+
+    bool LoadGeneratedLeafBrushTree(MemoryManager& memory, clipMap_t& clipMap)
+    {
+        std::vector<GeneratedBrushVolume> brushVolumes;
+        if (!BuildGeneratedBrushVolumes(clipMap, brushVolumes))
+            return false;
+
         clipMap.info.numBrushSides = 0u;
         clipMap.info.brushsides = nullptr;
 
-        clipMap.info.numLeafBrushes = 1u;
+        clipMap.info.numLeafBrushes = static_cast<unsigned int>(brushVolumes.size());
         clipMap.info.leafbrushes = AllocZeroed<LeafBrush>(memory, clipMap.info.numLeafBrushes);
+        for (auto leafBrushIndex = 0u; leafBrushIndex < clipMap.info.numLeafBrushes; leafBrushIndex++)
+            clipMap.info.leafbrushes[leafBrushIndex] = static_cast<LeafBrush>(leafBrushIndex);
 
         clipMap.info.leafbrushNodesCount = 2u;
         clipMap.info.leafbrushNodes = AllocZeroed<cLeafBrushNode_s>(memory, clipMap.info.leafbrushNodesCount);
         auto& leafBrushNode = clipMap.info.leafbrushNodes[GENERATED_LEAF_BRUSH_NODE];
         leafBrushNode.axis = TERMINAL_LEAF_BRUSH_AXIS;
-        leafBrushNode.leafBrushCount = 1;
+        leafBrushNode.leafBrushCount = static_cast<std::int16_t>(clipMap.info.numLeafBrushes);
         leafBrushNode.contents = GENERATED_LEAF_BRUSH_CONTENTS;
         leafBrushNode.data.leaf.brushes = clipMap.info.leafbrushes;
 
-        clipMap.info.numBrushVerts = 0u;
-        clipMap.info.brushVerts = nullptr;
+        clipMap.info.numBrushVerts = static_cast<unsigned int>(brushVolumes.size() * 8u);
+        clipMap.info.brushVerts = AllocZeroed<vec3_t>(memory, clipMap.info.numBrushVerts);
 
-        clipMap.info.numBrushes = 1u;
+        clipMap.info.numBrushes = static_cast<std::uint16_t>(brushVolumes.size());
         clipMap.info.brushes = AllocZeroed<cbrush_array_t>(memory, clipMap.info.numBrushes);
-        clipMap.info.brushes[0].contents = GENERATED_LEAF_BRUSH_CONTENTS;
+        clipMap.info.brushBounds = nullptr;
+        clipMap.info.brushContents = nullptr;
 
-        clipMap.info.brushBounds = AllocZeroed<BoundsArray>(memory, clipMap.info.numBrushes);
-        clipMap.info.brushContents = AllocZeroed<int>(memory, clipMap.info.numBrushes);
-        clipMap.info.brushContents[0] = GENERATED_LEAF_BRUSH_CONTENTS;
+        for (auto brushIndex = 0u; brushIndex < clipMap.info.numBrushes; brushIndex++)
+        {
+            const auto& brushVolume = brushVolumes[brushIndex];
+            auto& brush = clipMap.info.brushes[brushIndex];
+
+            brush.mins = brushVolume.m_mins;
+            brush.maxs = brushVolume.m_maxs;
+            brush.contents = GENERATED_LEAF_BRUSH_CONTENTS;
+            brush.numverts = 8u;
+            brush.verts = &clipMap.info.brushVerts[brushIndex * brush.numverts];
+
+            brush.verts[0] = vec3_t{brush.mins.x, brush.mins.y, brush.mins.z};
+            brush.verts[1] = vec3_t{brush.maxs.x, brush.mins.y, brush.mins.z};
+            brush.verts[2] = vec3_t{brush.mins.x, brush.maxs.y, brush.mins.z};
+            brush.verts[3] = vec3_t{brush.maxs.x, brush.maxs.y, brush.mins.z};
+            brush.verts[4] = vec3_t{brush.mins.x, brush.mins.y, brush.maxs.z};
+            brush.verts[5] = vec3_t{brush.maxs.x, brush.mins.y, brush.maxs.z};
+            brush.verts[6] = vec3_t{brush.mins.x, brush.maxs.y, brush.maxs.z};
+            brush.verts[7] = vec3_t{brush.maxs.x, brush.maxs.y, brush.maxs.z};
+
+            for (auto side = 0u; side < 2u; side++)
+            {
+                for (auto axis = 0u; axis < 3u; axis++)
+                {
+                    brush.axial_cflags[side][axis] = GENERATED_LEAF_BRUSH_CONTENTS;
+                    brush.axial_sflags[side][axis] = GENERATED_LEAF_BRUSH_SURFACE_FLAGS;
+                }
+            }
+        }
+
+        return true;
     }
 
     void LoadBspTree(MemoryManager& memory, clipMap_t& clipMap)
@@ -674,16 +808,17 @@ namespace
 
     bool LoadWorldCollision(MemoryManager& memory, clipMap_t& clipMap, const map::T6MapWorldGeometry& collisionWorld)
     {
-        LoadEmptyLeafBrushTree(memory, clipMap);
-
         if (!LoadPartitions(memory, clipMap, collisionWorld))
+            return false;
+
+        if (!LoadGeneratedLeafBrushTree(memory, clipMap))
             return false;
 
         LoadBspTree(memory, clipMap);
 
         const auto walkableEdgeSize = (3 * clipMap.triCount + 31) / 32 * 4;
         clipMap.triEdgeIsWalkable = memory.Alloc<char>(walkableEdgeSize);
-        std::memset(clipMap.triEdgeIsWalkable, 1, walkableEdgeSize);
+        std::memset(clipMap.triEdgeIsWalkable, 0xFF, walkableEdgeSize);
 
         return true;
     }

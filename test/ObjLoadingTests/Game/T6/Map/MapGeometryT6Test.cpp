@@ -31,9 +31,9 @@ namespace
 
         REQUIRE(geometry->m_collision_world.m_surfaces.size() == geometry->m_gfx_world.m_surfaces.size());
         REQUIRE(geometry->m_collision_world.m_indices.size() % 3u == 0u);
-        REQUIRE(geometry->m_gfx_world.m_surfaces[0].m_tri_count == geometry->m_collision_world.m_surfaces[0].m_tri_count * 2u);
-        REQUIRE(geometry->m_gfx_world.m_indices.size() == geometry->m_collision_world.m_indices.size() * 2u);
-        REQUIRE(geometry->m_gfx_world.m_vertices.size() >= geometry->m_collision_world.m_vertices.size());
+        REQUIRE(geometry->m_gfx_world.m_surfaces[0].m_tri_count == geometry->m_collision_world.m_surfaces[0].m_tri_count);
+        REQUIRE(geometry->m_gfx_world.m_indices.size() == geometry->m_collision_world.m_indices.size());
+        REQUIRE(geometry->m_gfx_world.m_vertices.size() == geometry->m_collision_world.m_vertices.size());
     }
 
     TEST_CASE("T6 map geometry rejects invalid graphics FBX", "[t6][map]")

@@ -3,11 +3,16 @@
 #include "Game/T6/T6.h"
 #include "Utils/Logging/Log.h"
 
+#include <algorithm>
+#include <array>
+#include <cassert>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <limits>
+#include <vector>
 
 using namespace T6;
 
@@ -19,12 +24,184 @@ namespace
     constexpr auto DEFAULT_SUN_DIRECTION_X = -0.242f;
     constexpr auto DEFAULT_SUN_DIRECTION_Y = -0.841f;
     constexpr auto DEFAULT_SUN_DIRECTION_Z = -0.485f;
+    constexpr auto GENERATED_PATH_LINK_DISTANCE = 512.0f;
+    constexpr auto GENERATED_PATH_LINK_MAX_VERTICAL_DELTA = 128.0f;
+    constexpr auto GENERATED_PATH_LINK_FLAGS = 0x28;
+    constexpr auto GENERATED_PATH_TREE_LEAF_NODE_COUNT = 2u;
+
+    struct GeneratedPathLink
+    {
+        uint16_t m_node_num;
+        float m_distance;
+    };
+
+    struct GeneratedPathTreeNode
+    {
+        int m_axis = -1;
+        float m_dist = 0.0f;
+        int m_child_indices[2] = {-1, -1};
+        std::vector<uint16_t> m_nodes;
+    };
 
     template<typename T> T* AllocZeroed(MemoryManager& memory, const std::size_t count = 1u)
     {
         auto* result = memory.Alloc<T>(count);
         std::memset(result, 0, sizeof(T) * count);
         return result;
+    }
+
+    [[nodiscard]] float Distance3d(const std::array<float, 3>& lhs, const std::array<float, 3>& rhs)
+    {
+        const auto dx = lhs[0] - rhs[0];
+        const auto dy = lhs[1] - rhs[1];
+        const auto dz = lhs[2] - rhs[2];
+        return std::sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
+
+    [[nodiscard]] bool ShouldGeneratePathLink(const map::T6MapPathNode& lhs, const map::T6MapPathNode& rhs, float& distance)
+    {
+        if (std::fabs(lhs.m_origin[2] - rhs.m_origin[2]) > GENERATED_PATH_LINK_MAX_VERTICAL_DELTA)
+            return false;
+
+        distance = Distance3d(lhs.m_origin, rhs.m_origin);
+        return distance <= GENERATED_PATH_LINK_DISTANCE;
+    }
+
+    [[nodiscard]] std::vector<std::vector<GeneratedPathLink>> BuildGeneratedPathLinks(const std::vector<map::T6MapPathNode>& pathNodes)
+    {
+        std::vector<std::vector<GeneratedPathLink>> result(pathNodes.size());
+
+        for (auto nodeIndex = 0u; nodeIndex < pathNodes.size(); nodeIndex++)
+        {
+            for (auto otherNodeIndex = nodeIndex + 1u; otherNodeIndex < pathNodes.size(); otherNodeIndex++)
+            {
+                float distance;
+                if (!ShouldGeneratePathLink(pathNodes[nodeIndex], pathNodes[otherNodeIndex], distance))
+                    continue;
+
+                result[nodeIndex].push_back({static_cast<uint16_t>(otherNodeIndex), distance});
+                result[otherNodeIndex].push_back({static_cast<uint16_t>(nodeIndex), distance});
+            }
+        }
+
+        return result;
+    }
+
+    [[nodiscard]] int SelectPathTreeSplitAxis(const std::vector<map::T6MapPathNode>& pathNodes, const std::vector<uint16_t>& nodeIndices)
+    {
+        auto bestAxis = 0;
+        auto bestRange = -1.0f;
+
+        for (auto axis = 0; axis < 3; axis++)
+        {
+            auto minValue = pathNodes[nodeIndices[0]].m_origin[axis];
+            auto maxValue = minValue;
+            for (const auto nodeIndex : nodeIndices)
+            {
+                minValue = std::min(minValue, pathNodes[nodeIndex].m_origin[axis]);
+                maxValue = std::max(maxValue, pathNodes[nodeIndex].m_origin[axis]);
+            }
+
+            const auto range = maxValue - minValue;
+            if (range > bestRange)
+            {
+                bestAxis = axis;
+                bestRange = range;
+            }
+        }
+
+        return bestAxis;
+    }
+
+    int BuildGeneratedPathTreeNode(std::vector<GeneratedPathTreeNode>& treeNodes,
+                                   const std::vector<map::T6MapPathNode>& pathNodes,
+                                   std::vector<uint16_t> nodeIndices)
+    {
+        const auto treeIndex = static_cast<int>(treeNodes.size());
+        treeNodes.emplace_back();
+
+        if (nodeIndices.size() <= GENERATED_PATH_TREE_LEAF_NODE_COUNT)
+        {
+            treeNodes[treeIndex].m_nodes = std::move(nodeIndices);
+            return treeIndex;
+        }
+
+        const auto axis = SelectPathTreeSplitAxis(pathNodes, nodeIndices);
+        std::sort(nodeIndices.begin(),
+                  nodeIndices.end(),
+                  [&pathNodes, axis](const uint16_t lhs, const uint16_t rhs)
+                  {
+                      return pathNodes[lhs].m_origin[axis] < pathNodes[rhs].m_origin[axis];
+                  });
+
+        const auto splitIndex = nodeIndices.size() / 2u;
+        std::vector<uint16_t> left(nodeIndices.begin(), nodeIndices.begin() + splitIndex);
+        std::vector<uint16_t> right(nodeIndices.begin() + splitIndex, nodeIndices.end());
+
+        treeNodes[treeIndex].m_axis = axis;
+        treeNodes[treeIndex].m_dist = (pathNodes[left.back()].m_origin[axis] + pathNodes[right.front()].m_origin[axis]) * 0.5f;
+        treeNodes[treeIndex].m_child_indices[0] = BuildGeneratedPathTreeNode(treeNodes, pathNodes, std::move(left));
+        treeNodes[treeIndex].m_child_indices[1] = BuildGeneratedPathTreeNode(treeNodes, pathNodes, std::move(right));
+        return treeIndex;
+    }
+
+    void InitPathNodeTree(MemoryManager& memory, PathData& path, const std::vector<map::T6MapPathNode>& pathNodes)
+    {
+        assert(!pathNodes.empty());
+        assert(path.nodeCount == pathNodes.size());
+
+        std::vector<uint16_t> nodeIndices;
+        nodeIndices.reserve(pathNodes.size());
+        for (auto nodeIndex = 0u; nodeIndex < pathNodes.size(); nodeIndex++)
+            nodeIndices.emplace_back(static_cast<uint16_t>(nodeIndex));
+
+        std::vector<GeneratedPathTreeNode> generatedTree;
+        BuildGeneratedPathTreeNode(generatedTree, pathNodes, std::move(nodeIndices));
+
+        path.nodeTreeCount = static_cast<int>(generatedTree.size());
+        path.nodeTree = AllocZeroed<pathnode_tree_t>(memory, generatedTree.size());
+        for (auto treeIndex = 0u; treeIndex < generatedTree.size(); treeIndex++)
+        {
+            const auto& sourceNode = generatedTree[treeIndex];
+            auto& runtimeNode = path.nodeTree[treeIndex];
+            runtimeNode.axis = sourceNode.m_axis;
+            runtimeNode.dist = sourceNode.m_dist;
+
+            if (runtimeNode.axis < 0)
+            {
+                runtimeNode.u.s.nodeCount = static_cast<int>(sourceNode.m_nodes.size());
+                runtimeNode.u.s.nodes = AllocZeroed<uint16_t>(memory, sourceNode.m_nodes.size());
+                std::memcpy(runtimeNode.u.s.nodes, sourceNode.m_nodes.data(), sizeof(uint16_t) * sourceNode.m_nodes.size());
+            }
+            else
+            {
+                runtimeNode.u.child[0] = &path.nodeTree[sourceNode.m_child_indices[0]];
+                runtimeNode.u.child[1] = &path.nodeTree[sourceNode.m_child_indices[1]];
+            }
+        }
+    }
+
+    [[nodiscard]] bool InitPathVis(MemoryManager& memory, PathData& path)
+    {
+        if (path.nodeCount < 2u)
+        {
+            path.visBytes = 0;
+            path.pathVis = nullptr;
+            return true;
+        }
+
+        const auto visibilityBitCount = static_cast<uint64_t>(path.nodeCount) * static_cast<uint64_t>(path.nodeCount - 1u);
+        const auto visibilityBytes = static_cast<uint64_t>((visibilityBitCount + 7u) / 8u);
+        if (visibilityBytes > static_cast<uint64_t>(std::numeric_limits<int>::max()))
+        {
+            con::error("T6 custom map has too many authored path nodes for generated path visibility: {}", path.nodeCount);
+            return false;
+        }
+
+        path.visBytes = static_cast<int>(visibilityBytes);
+        path.pathVis = AllocZeroed<char>(memory, static_cast<std::size_t>(path.visBytes));
+        std::memset(path.pathVis, 0xFF, static_cast<std::size_t>(path.visBytes));
+        return true;
     }
 
     void InitEmptyPathData(MemoryManager& memory, PathData& path)
@@ -60,20 +237,24 @@ namespace
         path.originalNodeCount = path.nodeCount;
         path.nodes = AllocZeroed<pathnode_t>(memory, path.nodeCount + T6_RESERVED_PATH_NODE_COUNT);
         path.basenodes = AllocZeroed<pathbasenode_t>(memory, path.nodeCount + T6_RESERVED_PATH_NODE_COUNT);
-        path.visBytes = 0;
-        path.pathVis = nullptr;
+        if (!InitPathVis(memory, path))
+            return false;
         path.smoothBytes = 0;
         path.smoothCache = nullptr;
-        path.nodeTreeCount = 1;
-        path.nodeTree = AllocZeroed<pathnode_tree_t>(memory);
-        path.nodeTree[0].axis = -1;
-        path.nodeTree[0].dist = 0.0f;
-        path.nodeTree[0].u.s.nodeCount = static_cast<int>(path.nodeCount);
-        path.nodeTree[0].u.s.nodes = AllocZeroed<uint16_t>(memory, path.nodeCount);
+        InitPathNodeTree(memory, path, entitySource.m_path_nodes);
+
+        const auto generatedLinks = BuildGeneratedPathLinks(entitySource.m_path_nodes);
 
         for (auto nodeIndex = 0u; nodeIndex < path.nodeCount; nodeIndex++)
         {
             const auto& sourceNode = entitySource.m_path_nodes[nodeIndex];
+            const auto& sourceLinks = generatedLinks[nodeIndex];
+            if (sourceLinks.size() > static_cast<std::size_t>(std::numeric_limits<int16_t>::max()))
+            {
+                con::error("T6 custom map path node {} generated too many path links: {}", nodeIndex, sourceLinks.size());
+                return false;
+            }
+
             auto* node = &path.nodes[nodeIndex];
 
             node->constant.type = NODE_PATHNODE;
@@ -90,14 +271,21 @@ namespace
             node->constant.minUseDistSq = 0.0f;
             node->constant.wOverlapNode[0] = -1;
             node->constant.wOverlapNode[1] = -1;
-            node->constant.totalLinkCount = 0u;
-            node->constant.Links = nullptr;
+            node->constant.totalLinkCount = static_cast<uint16_t>(sourceLinks.size());
+            node->constant.Links = sourceLinks.empty() ? nullptr : AllocZeroed<pathlink_s>(memory, sourceLinks.size());
+
+            for (auto linkIndex = 0u; linkIndex < sourceLinks.size(); linkIndex++)
+            {
+                node->constant.Links[linkIndex].fDist = sourceLinks[linkIndex].m_distance;
+                node->constant.Links[linkIndex].nodeNum = sourceLinks[linkIndex].m_node_num;
+                node->constant.Links[linkIndex].flags = GENERATED_PATH_LINK_FLAGS;
+            }
+
+            node->dynamic.wLinkCount = 0;
 
             auto* baseNode = &path.basenodes[nodeIndex];
             baseNode->vOrigin = node->constant.vOrigin;
             baseNode->type = NODE_PATHNODE;
-
-            path.nodeTree[0].u.s.nodes[nodeIndex] = static_cast<uint16_t>(nodeIndex);
         }
 
         return true;
