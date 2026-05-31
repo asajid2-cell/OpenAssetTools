@@ -10,6 +10,7 @@
 
 namespace
 {
+    constexpr auto METADATA_MAP = "map";
     constexpr auto METADATA_GAME = "game";
     constexpr auto METADATA_GDT = "gdt";
     constexpr auto METADATA_NAME = "name";
@@ -133,6 +134,20 @@ void SequenceZoneDefinitionMetaData::ProcessMatch(ZoneDefinitionParserState* sta
     if (key == METADATA_GAME)
     {
         ProcessMetaDataGame(state, valueToken, value);
+    }
+    else if (key == METADATA_MAP)
+    {
+        auto valueLowerCase = value;
+        utils::MakeStringLowerCase(valueLowerCase);
+
+        if (valueLowerCase == "sp")
+            state->SetMapType(ZoneDefinitionMapType::SP);
+        else if (valueLowerCase == "mp")
+            state->SetMapType(ZoneDefinitionMapType::MP);
+        else if (valueLowerCase == "zm")
+            state->SetMapType(ZoneDefinitionMapType::ZM);
+        else
+            throw ParsingException(valueToken.GetPos(), "map must be SP, MP or ZM");
     }
     else if (key == METADATA_GDT)
     {

@@ -32,6 +32,9 @@ class AssetCreationContext : public ZoneAssetCreationStateContainer
 public:
     AssetCreationContext(Zone& zone, const AssetCreatorCollection* creators, const IgnoredAssetLookup* ignoredAssetLookup);
 
+    void ReportFailure();
+    [[nodiscard]] bool HasFailed() const;
+
     template<AssetDefinition Asset_t> XAssetInfo<typename Asset_t::Type>* AddAsset(AssetRegistration<Asset_t> registration)
     {
         return static_cast<XAssetInfo<typename Asset_t::Type>*>(AddAssetGeneric(std::move(registration)));
@@ -43,6 +46,13 @@ public:
     }
 
     XAssetInfoGeneric* AddAssetGeneric(GenericAssetRegistration registration) const;
+
+    template<AssetDefinition Asset_t> [[nodiscard]] bool HasAsset(const std::string& assetName) const
+    {
+        return HasAssetGeneric(Asset_t::EnumEntry, assetName);
+    }
+
+    [[nodiscard]] bool HasAssetGeneric(asset_type_t assetType, const std::string& assetName) const;
 
     template<SubAssetDefinition SubAsset_t> XAssetInfo<typename SubAsset_t::Type>* AddSubAsset(AssetRegistration<SubAsset_t> registration)
     {
@@ -107,6 +117,7 @@ private:
     const IgnoredAssetLookup* m_ignored_asset_lookup;
 
     unsigned m_forced_load_depth;
+    bool m_has_failures;
 };
 
 #include "AssetCreatorCollection.h"

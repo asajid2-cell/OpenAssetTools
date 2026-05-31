@@ -19,6 +19,7 @@
 #include "Leaderboard/JsonLoaderLeaderboardT6.h"
 #include "LightDef/LightDefLoaderT6.h"
 #include "Localize/LocalizeLoaderT6.h"
+#include "Map/LoaderMapT6.h"
 #include "Material/LoaderMaterialT6.h"
 #include "ObjContainer/IPak/IPak.h"
 #include "ObjLoading.h"
@@ -47,6 +48,7 @@
 #include "ZBarrier/GdtLoaderZBarrierT6.h"
 #include "ZBarrier/RawLoaderZBarrierT6.h"
 
+#include <cstring>
 #include <format>
 #include <memory>
 
@@ -54,6 +56,16 @@ namespace T6
 {
     constexpr auto IPAK_READ_HASH = Common::Com_HashKey("ipak_read", 64);
     constexpr auto GLOBAL_HASH = Common::Com_HashKey("GLOBAL", 64);
+    constexpr auto MAP_ASSET_NAME_PROPERTY = "mapname";
+
+    std::string GetMapAssetNameOverride(const ZoneDefinition& definition)
+    {
+        const auto foundProperty = definition.m_properties.m_properties.find(MAP_ASSET_NAME_PROPERTY);
+        if (foundProperty == definition.m_properties.m_properties.end())
+            return {};
+
+        return foundProperty->second;
+    }
 
     bool ObjLoader::VerifySoundBankChecksum(const SoundBank& soundBank, const SndRuntimeAssetBank& sndRuntimeAssetBank)
     {
@@ -271,6 +283,63 @@ namespace T6
 
     namespace
     {
+        constexpr auto DEFAULT_CLIP_MATERIAL = ",mc/lambert1";
+        constexpr auto DEFAULT_CLIP_CONTENT_FLAGS = 1u;
+        constexpr auto DEFAULT_CLIP_SURFACE_FLAGS = 1u;
+
+        template<typename T> T* AllocZeroed(MemoryManager& memory, const std::size_t count = 1u)
+        {
+            auto* result = memory.Alloc<T>(count);
+            std::memset(result, 0, sizeof(T) * count);
+            return result;
+        }
+
+        ClipInfo* CreateEmptyClipInfo(MemoryManager& memory)
+        {
+            auto* info = AllocZeroed<ClipInfo>(memory);
+            info->numMaterials = 1u;
+            info->materials = AllocZeroed<ClipMaterial>(memory);
+            info->materials[0].name = memory.Dup(DEFAULT_CLIP_MATERIAL);
+            info->materials[0].contentFlags = DEFAULT_CLIP_CONTENT_FLAGS;
+            info->materials[0].surfaceFlags = DEFAULT_CLIP_SURFACE_FLAGS;
+
+            return info;
+        }
+
+        class EmptyAddonMapEntsLoader final : public AssetCreator<AssetAddonMapEnts>
+        {
+        public:
+            explicit EmptyAddonMapEntsLoader(MemoryManager& memory)
+                : m_memory(memory)
+            {
+            }
+
+            AssetCreationResult CreateAsset(const std::string& assetName, AssetCreationContext& context) override
+            {
+                auto* addonMapEnts = AllocZeroed<AddonMapEnts>(m_memory);
+                addonMapEnts->name = m_memory.Dup(assetName.c_str());
+                addonMapEnts->entityString = m_memory.Dup("");
+                addonMapEnts->numEntityChars = 1;
+
+                addonMapEnts->trigger.count = 0u;
+                addonMapEnts->trigger.models = nullptr;
+                addonMapEnts->trigger.hullCount = 0u;
+                addonMapEnts->trigger.hulls = nullptr;
+                addonMapEnts->trigger.slabCount = 0u;
+                addonMapEnts->trigger.slabs = nullptr;
+
+                addonMapEnts->info = CreateEmptyClipInfo(m_memory);
+                addonMapEnts->numSubModels = 0u;
+                addonMapEnts->cmodels = nullptr;
+                addonMapEnts->models = nullptr;
+
+                return AssetCreationResult::Success(context.AddAsset<AssetAddonMapEnts>(assetName, addonMapEnts));
+            }
+
+        private:
+            MemoryManager& m_memory;
+        };
+
         void ConfigureDefaultCreators(AssetCreatorCollection& collection, Zone& zone)
         {
             auto& memory = zone.Memory();
@@ -377,7 +446,8 @@ namespace T6
             collection.AddAssetCreator(std::make_unique<GlobalAssetPoolsLoader<AssetZBarrier>>(zone));
         }
 
-        void ConfigureLoaders(AssetCreatorCollection& collection, Zone& zone, ISearchPath& searchPath, IGdtQueryable& gdt)
+        void ConfigureLoaders(
+            AssetCreatorCollection& collection, Zone& zone, ISearchPath& searchPath, IGdtQueryable& gdt, const ZoneDefinition& definition)
         {
             auto& memory = zone.Memory();
 
@@ -428,8 +498,9 @@ namespace T6
             collection.AddAssetCreator(vehicle::CreateRawLoaderT6(memory, searchPath, zone));
             collection.AddAssetCreator(vehicle::CreateGdtLoaderT6(memory, searchPath, gdt, zone));
             // collection.AddAssetCreator(std::make_unique<AssetLoaderMemoryBlock>(memory));
-            // collection.AddAssetCreator(std::make_unique<AssetLoaderAddonMapEnts>(memory));
-            // collection.AddAssetCreator(std::make_unique<AssetLoaderTracer>(memory));
+            collection.AddAssetCreator(std::make_unique<EmptyAddonMapEntsLoader>(memory));
+            collection.AddAssetCreator(tracer::CreateRawLoaderT6(memory, searchPath, zone));
+            collection.AddAssetCreator(tracer::CreateGdtLoaderT6(memory, searchPath, gdt, zone));
             // collection.AddAssetCreator(std::make_unique<AssetLoaderSkinnedVerts>(memory));
             collection.AddAssetCreator(qdb::CreateLoaderT6(memory, searchPath));
             collection.AddAssetCreator(slug::CreateLoaderT6(memory, searchPath));
@@ -438,15 +509,19 @@ namespace T6
             collection.AddAssetCreator(z_barrier::CreateRawLoaderT6(memory, searchPath, zone));
             collection.AddAssetCreator(z_barrier::CreateGdtLoaderT6(memory, searchPath, gdt, zone));
 
+            if (definition.m_map_type != ZoneDefinitionMapType::NONE)
+                collection.AddAssetCreator(map::CreateLoaderT6(searchPath, zone, definition.m_map_type, GetMapAssetNameOverride(definition)));
+
             collection.AddSubAssetCreator(techset::CreateVertexShaderLoaderT6(memory, searchPath));
             collection.AddSubAssetCreator(techset::CreatePixelShaderLoaderT6(memory, searchPath));
         }
     } // namespace
 
-    void ObjLoader::ConfigureCreatorCollection(AssetCreatorCollection& collection, Zone& zone, ISearchPath& searchPath, IGdtQueryable& gdt) const
+    void ObjLoader::ConfigureCreatorCollection(
+        AssetCreatorCollection& collection, Zone& zone, ISearchPath& searchPath, IGdtQueryable& gdt, const ZoneDefinition& definition) const
     {
         ConfigureDefaultCreators(collection, zone);
-        ConfigureLoaders(collection, zone, searchPath, gdt);
+        ConfigureLoaders(collection, zone, searchPath, gdt, definition);
         ConfigureGlobalAssetPoolsLoaders(collection, zone);
     }
 } // namespace T6

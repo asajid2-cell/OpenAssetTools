@@ -83,13 +83,24 @@ AssetCreationContext::AssetCreationContext(Zone& zone, const AssetCreatorCollect
       m_forced_asset_pools(std::make_unique<ZoneAssetPools>(zone, zone.m_priority)),
       m_creators(creators),
       m_ignored_asset_lookup(ignoredAssetLookup),
-      m_forced_load_depth(0u)
+      m_forced_load_depth(0u),
+      m_has_failures(false)
 {
     const auto subAssetTypeCount = IGame::GetGameById(zone.m_game_id)->GetSubAssetTypeCount();
     m_sub_asset_pools.resize(subAssetTypeCount);
 
     for (asset_type_t subAssetType = 0; subAssetType < subAssetTypeCount; subAssetType++)
         m_sub_asset_pools[subAssetType] = std::make_unique<AssetPool>();
+}
+
+void AssetCreationContext::ReportFailure()
+{
+    m_has_failures = true;
+}
+
+bool AssetCreationContext::HasFailed() const
+{
+    return m_has_failures;
 }
 
 XAssetInfoGeneric* AssetCreationContext::AddAssetGeneric(GenericAssetRegistration registration) const
@@ -110,6 +121,11 @@ XAssetInfoGeneric* AssetCreationContext::AddAssetGeneric(GenericAssetRegistratio
         con::error(R"(Failed to add asset of type "{}" to pool: "{}")", *IGame::GetGameById(m_zone.m_game_id)->GetAssetTypeName(assetType), pAssetName);
 
     return addedAsset;
+}
+
+bool AssetCreationContext::HasAssetGeneric(const asset_type_t assetType, const std::string& assetName) const
+{
+    return m_zone.m_pools.GetAssetOrAssetReference(assetType, assetName) != nullptr;
 }
 
 XAssetInfoGeneric* AssetCreationContext::AddSubAssetGeneric(GenericAssetRegistration registration) const

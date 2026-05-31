@@ -163,8 +163,10 @@ namespace
     }
 } // namespace
 
-void ObjLoader::ConfigureCreatorCollection(AssetCreatorCollection& collection, Zone& zone, ISearchPath& searchPath, IGdtQueryable& gdt) const
+void ObjLoader::ConfigureCreatorCollection(
+    AssetCreatorCollection& collection, Zone& zone, ISearchPath& searchPath, IGdtQueryable& gdt, const ZoneDefinition& definition) const
 {
+    (void)definition;
     ConfigureDefaultCreators(collection, zone);
     ConfigureLoaders(collection, zone, searchPath, gdt);
     ConfigureGlobalAssetPoolsLoaders(collection, zone);

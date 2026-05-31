@@ -282,6 +282,44 @@ material,test_material
         REQUIRE(iterator == ipakReadResults.second);
     }
 
+    TEST_CASE("ZoneDefinitionInputStream: Ensure can define map type", "[zonedefinition]")
+    {
+        std::istringstream inputData(R"sampledata(
+// Call Of Duty: Black Ops II
+>game,T6
+>name,zm_test_map
+>map,zm
+
+)sampledata");
+
+        MockSearchPath mockSearchPath;
+        ZoneDefinitionInputStream inputStream(inputData, "test", "test.zone", mockSearchPath);
+
+        const auto result = inputStream.ReadDefinition();
+        REQUIRE(result);
+
+        REQUIRE(result->m_game == GameId::T6);
+        REQUIRE(result->m_name == "zm_test_map");
+        REQUIRE(result->m_map_type == ZoneDefinitionMapType::ZM);
+        REQUIRE(result->m_assets.empty());
+    }
+
+    TEST_CASE("ZoneDefinitionInputStream: Unknown map type fails", "[zonedefinition]")
+    {
+        std::istringstream inputData(R"sampledata(
+// Call Of Duty: Black Ops II
+>game,T6
+>map,unknown
+
+)sampledata");
+
+        MockSearchPath mockSearchPath;
+        ZoneDefinitionInputStream inputStream(inputData, "test", "test.zone", mockSearchPath);
+
+        const auto result = inputStream.ReadDefinition();
+        REQUIRE_FALSE(result);
+    }
+
     TEST_CASE("ZoneDefinitionInputStream: Ensure can define IWD", "[zonedefinition]")
     {
         std::istringstream inputData(R"sampledata(

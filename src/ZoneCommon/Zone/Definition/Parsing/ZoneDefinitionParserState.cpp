@@ -18,6 +18,11 @@ void ZoneDefinitionParserState::SetGame(const GameId gameId)
     m_game = IGame::GetGameById(gameId);
 }
 
+void ZoneDefinitionParserState::SetMapType(const ZoneDefinitionMapType mapType)
+{
+    m_definition->m_map_type = mapType;
+}
+
 namespace
 {
     void AddCurrentObjContainerToDefinitionIfNecessary(ZoneDefinition& zoneDefinition, std::optional<ZoneDefinitionObjContainer>& maybeObjContainer)
