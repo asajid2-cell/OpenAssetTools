@@ -58,3 +58,12 @@ dependency, `fsi` and `wsi` as `vision/*.vision` rawfile dependencies,
 
 The backend is tool-side support only. Runtime loading still requires building
 and staging a complete map package and validating it in game.
+
+For Zombies maps, the generated world assets are only one part of the runtime
+package. The map must also provide the script, table, actor, animation, and
+support assets expected by the selected Zombies setup. In particular, if a map
+uses a stock zombie `animtree` and `animstatedef`, its asset lists or loaded
+donor zones must include the referenced body movement and combat `xanim`
+assets. Supplying only attack animations is not enough: stock scripts can enter
+`walk` / `move` states while the actor remains immobile if the locomotion xanim
+payload is absent.

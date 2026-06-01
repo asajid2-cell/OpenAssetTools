@@ -10,6 +10,14 @@
 
 namespace map
 {
+    struct T6MapBrushModel
+    {
+        std::array<float, 3> m_mins{};
+        std::array<float, 3> m_maxs{};
+        int m_contents = 1;
+        int m_surface_flags = 0;
+    };
+
     struct T6MapPathNode
     {
         std::array<float, 3> m_origin{};
@@ -21,6 +29,7 @@ namespace map
     {
         std::string m_entity_string;
         std::vector<T6MapPathNode> m_path_nodes;
+        std::vector<T6MapBrushModel> m_brush_models;
         std::vector<std::string> m_material_dependencies;
         std::vector<std::string> m_rawfile_dependencies;
         std::vector<std::string> m_xmodel_dependencies;

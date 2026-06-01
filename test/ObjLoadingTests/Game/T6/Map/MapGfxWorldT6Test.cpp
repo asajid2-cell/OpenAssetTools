@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstring>
+#include <limits>
 
 using namespace T6;
 
@@ -245,6 +246,43 @@ namespace
         AddImage(context, memory, "$outdoor");
 
         REQUIRE(map::CreateGfxWorldT6(memory, searchPath, context, *geometry) == nullptr);
+    }
+
+    TEST_CASE("T6 map GfxWorld reserves brush models for generated entity volumes", "[t6][map]")
+    {
+        const auto testPath = oat::paths::GetTestDirectory() / "SystemTests/Game/T6/CustomMapPlumbing/ValidSourceMarkers";
+        SearchPathFilesystem searchPath(testPath.string());
+
+        const auto geometry = map::LoadMapGeometryT6(searchPath, "zm_custom_map_shell", ZoneDefinitionMapType::ZM);
+        REQUIRE(geometry);
+
+        Zone zone("zm_custom_map_shell", 0, GameId::T6, GamePlatform::PC);
+        AssetCreatorCollection creatorCollection(zone);
+        IgnoredAssetLookup ignoredAssetLookup;
+        AssetCreationContext context(zone, &creatorCollection, &ignoredAssetLookup);
+        MemoryManager memory;
+
+        AddMaterial(context, memory, "streaming_temp_image_0");
+        AddMaterial(context, memory, WORLD_FALLBACK_MATERIAL);
+        AddImage(context, memory, "reflection_probe0");
+        AddImage(context, memory, "lightmap0_secondary");
+        AddImage(context, memory, "$outdoor");
+
+        map::T6MapEntitySource entitySource;
+        entitySource.m_brush_models.push_back({{-128.0f, -128.0f, -96.0f}, {128.0f, 128.0f, 160.0f}, 1, 0});
+
+        const auto* gfxWorld = map::CreateGfxWorldT6(memory, searchPath, context, *geometry, entitySource);
+
+        REQUIRE(gfxWorld != nullptr);
+        REQUIRE(gfxWorld->modelCount == 2);
+        REQUIRE(gfxWorld->models[1].surfaceCount == 0u);
+        REQUIRE(gfxWorld->models[1].startSurfIndex == std::numeric_limits<unsigned int>::max());
+        REQUIRE(gfxWorld->models[1].bounds[0].x == -128.0f);
+        REQUIRE(gfxWorld->models[1].bounds[0].y == -128.0f);
+        REQUIRE(gfxWorld->models[1].bounds[0].z == -96.0f);
+        REQUIRE(gfxWorld->models[1].bounds[1].x == 128.0f);
+        REQUIRE(gfxWorld->models[1].bounds[1].y == 128.0f);
+        REQUIRE(gfxWorld->models[1].bounds[1].z == 160.0f);
     }
 
     TEST_CASE("T6 map GfxWorld falls back for zero-drawSurf world materials", "[t6][map]")

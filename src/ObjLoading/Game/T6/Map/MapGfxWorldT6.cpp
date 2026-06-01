@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -731,15 +732,26 @@ namespace
         gfxWorld.dpvsPlanes.nodes[0] = 1u;
     }
 
-    void LoadModels(MemoryManager& memory, GfxWorld& gfxWorld)
+    void LoadModels(MemoryManager& memory, GfxWorld& gfxWorld, const map::T6MapEntitySource& entitySource)
     {
-        gfxWorld.modelCount = 1;
-        gfxWorld.models = AllocZeroed<GfxBrushModel>(memory, 1u);
+        gfxWorld.modelCount = static_cast<int>(entitySource.m_brush_models.size() + 1u);
+        gfxWorld.models = AllocZeroed<GfxBrushModel>(memory, static_cast<std::size_t>(gfxWorld.modelCount));
         gfxWorld.models[0].startSurfIndex = 0u;
         gfxWorld.models[0].surfaceCount = static_cast<unsigned int>(gfxWorld.surfaceCount);
         gfxWorld.models[0].bounds[0] = gfxWorld.mins;
         gfxWorld.models[0].bounds[1] = gfxWorld.maxs;
         std::memset(&gfxWorld.models[0].writable, 0, sizeof(GfxBrushModelWritable));
+
+        for (auto modelIndex = 0u; modelIndex < entitySource.m_brush_models.size(); modelIndex++)
+        {
+            const auto& sourceModel = entitySource.m_brush_models[modelIndex];
+            auto& model = gfxWorld.models[modelIndex + 1u];
+            model.startSurfIndex = std::numeric_limits<unsigned int>::max();
+            model.surfaceCount = 0u;
+            model.bounds[0] = {sourceModel.m_mins[0], sourceModel.m_mins[1], sourceModel.m_mins[2]};
+            model.bounds[1] = {sourceModel.m_maxs[0], sourceModel.m_maxs[1], sourceModel.m_maxs[2]};
+            std::memset(&model.writable, 0, sizeof(GfxBrushModelWritable));
+        }
     }
 
     void LoadSunData(GfxWorld& gfxWorld)
@@ -891,7 +903,11 @@ namespace
 
 namespace map
 {
-    GfxWorld* CreateGfxWorldT6(MemoryManager& memory, ISearchPath& searchPath, AssetCreationContext& context, const T6MapGeometry& geometry)
+    GfxWorld* CreateGfxWorldT6(MemoryManager& memory,
+                               ISearchPath& searchPath,
+                               AssetCreationContext& context,
+                               const T6MapGeometry& geometry,
+                               const T6MapEntitySource& entitySource)
     {
         auto* gfxWorld = AllocZeroed<GfxWorld>(memory);
         gfxWorld->baseName = memory.Dup(geometry.m_map_name.c_str());
@@ -923,7 +939,7 @@ namespace map
         LoadGfxCells(memory, *gfxWorld);
         LoadLightGrid(memory, *gfxWorld);
         LoadGfxLights(memory, *gfxWorld);
-        LoadModels(memory, *gfxWorld);
+        LoadModels(memory, *gfxWorld, entitySource);
         LoadSunData(*gfxWorld);
         LoadDynEntData(memory, *gfxWorld);
 
@@ -954,5 +970,11 @@ namespace map
             gfxWorld->dpvsDyn.dynEntClientWordCount[1]);
 
         return gfxWorld;
+    }
+
+    GfxWorld* CreateGfxWorldT6(MemoryManager& memory, ISearchPath& searchPath, AssetCreationContext& context, const T6MapGeometry& geometry)
+    {
+        const T6MapEntitySource emptyEntitySource;
+        return CreateGfxWorldT6(memory, searchPath, context, geometry, emptyEntitySource);
     }
 } // namespace map

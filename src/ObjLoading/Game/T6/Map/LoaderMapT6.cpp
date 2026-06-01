@@ -378,7 +378,7 @@ namespace
                 return;
             }
 
-            auto* gfxWorld = map::CreateGfxWorldT6(memory, m_search_path, context, *geometry);
+            auto* gfxWorld = map::CreateGfxWorldT6(memory, m_search_path, context, *geometry, *entitySource);
             if (!gfxWorld)
             {
                 context.ReportFailure();
@@ -393,7 +393,7 @@ namespace
                 return;
             }
 
-            auto* clipMap = map::CreateClipMapT6(memory, context, *geometry, *gfxWorld);
+            auto* clipMap = map::CreateClipMapT6(memory, context, *geometry, *gfxWorld, *entitySource);
             if (!clipMap)
             {
                 context.ReportFailure();

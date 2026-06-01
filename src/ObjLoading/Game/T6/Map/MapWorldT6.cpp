@@ -24,10 +24,13 @@ namespace
     constexpr auto DEFAULT_SUN_DIRECTION_X = -0.242f;
     constexpr auto DEFAULT_SUN_DIRECTION_Y = -0.841f;
     constexpr auto DEFAULT_SUN_DIRECTION_Z = -0.485f;
-    constexpr auto GENERATED_PATH_LINK_DISTANCE = 512.0f;
+    // Keep generated path links close to authored neighbor links. Dense long-range
+    // links are discoverable by script but are rejected by T6 AI movement checks.
+    constexpr auto GENERATED_PATH_LINK_DISTANCE = 192.0f;
     constexpr auto GENERATED_PATH_LINK_MAX_VERTICAL_DELTA = 128.0f;
     constexpr auto GENERATED_PATH_LINK_FLAGS = 0x28;
-    constexpr auto GENERATED_PATH_TREE_LEAF_NODE_COUNT = 2u;
+    constexpr auto GENERATED_PATH_NODE_SPAWNFLAGS = 0x300000;
+    constexpr auto GENERATED_PATH_TREE_LEAF_NODE_COUNT = 4u;
 
     struct GeneratedPathLink
     {
@@ -258,7 +261,7 @@ namespace
             auto* node = &path.nodes[nodeIndex];
 
             node->constant.type = NODE_PATHNODE;
-            node->constant.spawnflags = sourceNode.m_spawn_flags;
+            node->constant.spawnflags = sourceNode.m_spawn_flags | GENERATED_PATH_NODE_SPAWNFLAGS;
             node->constant.vOrigin.x = sourceNode.m_origin[0];
             node->constant.vOrigin.y = sourceNode.m_origin[1];
             node->constant.vOrigin.z = sourceNode.m_origin[2];

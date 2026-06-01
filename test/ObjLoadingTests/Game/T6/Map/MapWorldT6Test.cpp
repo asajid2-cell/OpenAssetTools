@@ -14,6 +14,8 @@ using namespace std::literals;
 
 namespace
 {
+    constexpr auto T6_GENERATED_PATH_NODE_SPAWNFLAGS = 0x300000;
+
     TEST_CASE("T6 map world asset name uses conventional maps/mp d3dbsp path", "[t6][map]")
     {
         REQUIRE(map::GetT6MapWorldAssetName("zm_example") == "maps/mp/zm_example.d3dbsp");
@@ -74,7 +76,7 @@ namespace
         REQUIRE(gameWorldMp->path.smoothCache == nullptr);
         REQUIRE(gameWorldMp->path.nodeTree != nullptr);
         REQUIRE(gameWorldMp->path.nodes[0].constant.type == NODE_PATHNODE);
-        REQUIRE(gameWorldMp->path.nodes[0].constant.spawnflags == 4);
+        REQUIRE(gameWorldMp->path.nodes[0].constant.spawnflags == (T6_GENERATED_PATH_NODE_SPAWNFLAGS | 4));
         REQUIRE(gameWorldMp->path.nodes[0].constant.vOrigin.x == 128.0f);
         REQUIRE(gameWorldMp->path.nodes[0].constant.vOrigin.y == 256.0f);
         REQUIRE(gameWorldMp->path.nodes[0].constant.vOrigin.z == 64.0f);
@@ -88,7 +90,7 @@ namespace
         REQUIRE(gameWorldMp->path.nodes[0].constant.Links[0].flags == 0x28);
         REQUIRE(gameWorldMp->path.nodes[0].dynamic.wLinkCount == 0);
         REQUIRE(gameWorldMp->path.nodes[1].constant.type == NODE_PATHNODE);
-        REQUIRE(gameWorldMp->path.nodes[1].constant.spawnflags == 0);
+        REQUIRE(gameWorldMp->path.nodes[1].constant.spawnflags == T6_GENERATED_PATH_NODE_SPAWNFLAGS);
         REQUIRE(gameWorldMp->path.nodes[1].constant.vOrigin.x == 128.0f);
         REQUIRE(gameWorldMp->path.nodes[1].constant.vOrigin.y == 384.0f);
         REQUIRE(gameWorldMp->path.nodes[1].constant.vOrigin.z == 64.0f);
@@ -123,6 +125,10 @@ namespace
         entitySource.m_path_nodes.push_back({{0.0f, 64.0f, 0.0f}, 90.0f, 0});
         entitySource.m_path_nodes.push_back({{0.0f, 128.0f, 0.0f}, 270.0f, 0});
         entitySource.m_path_nodes.push_back({{0.0f, 192.0f, 0.0f}, 270.0f, 0});
+        entitySource.m_path_nodes.push_back({{0.0f, 256.0f, 0.0f}, 270.0f, 0});
+        entitySource.m_path_nodes.push_back({{0.0f, 320.0f, 0.0f}, 270.0f, 0});
+        entitySource.m_path_nodes.push_back({{0.0f, 384.0f, 0.0f}, 270.0f, 0});
+        entitySource.m_path_nodes.push_back({{0.0f, 448.0f, 0.0f}, 270.0f, 0});
 
         REQUIRE(map::EmitBaseWorldAssetsT6(context, zone, zone.m_name, entitySource, ZoneDefinitionMapType::ZM));
 
@@ -134,17 +140,49 @@ namespace
         REQUIRE(path.nodeTreeCount == 3);
         REQUIRE(path.nodeTree != nullptr);
         REQUIRE(path.nodeTree[0].axis == 1);
-        REQUIRE(path.nodeTree[0].dist == Catch::Approx(96.0f));
+        REQUIRE(path.nodeTree[0].dist == Catch::Approx(224.0f));
         REQUIRE(path.nodeTree[0].u.child[0] == &path.nodeTree[1]);
         REQUIRE(path.nodeTree[0].u.child[1] == &path.nodeTree[2]);
         REQUIRE(path.nodeTree[1].axis == -1);
-        REQUIRE(path.nodeTree[1].u.s.nodeCount == 2);
+        REQUIRE(path.nodeTree[1].u.s.nodeCount == 4);
         REQUIRE(path.nodeTree[1].u.s.nodes[0] == 0u);
         REQUIRE(path.nodeTree[1].u.s.nodes[1] == 1u);
+        REQUIRE(path.nodeTree[1].u.s.nodes[2] == 2u);
+        REQUIRE(path.nodeTree[1].u.s.nodes[3] == 3u);
         REQUIRE(path.nodeTree[2].axis == -1);
-        REQUIRE(path.nodeTree[2].u.s.nodeCount == 2);
-        REQUIRE(path.nodeTree[2].u.s.nodes[0] == 2u);
-        REQUIRE(path.nodeTree[2].u.s.nodes[1] == 3u);
+        REQUIRE(path.nodeTree[2].u.s.nodeCount == 4);
+        REQUIRE(path.nodeTree[2].u.s.nodes[0] == 4u);
+        REQUIRE(path.nodeTree[2].u.s.nodes[1] == 5u);
+        REQUIRE(path.nodeTree[2].u.s.nodes[2] == 6u);
+        REQUIRE(path.nodeTree[2].u.s.nodes[3] == 7u);
+    }
+
+    TEST_CASE("T6 zombie map generated path links stay on neighboring nodes", "[t6][map]")
+    {
+        Zone zone("zm_path_link_example", 0, GameId::T6, GamePlatform::PC);
+        AssetCreatorCollection creatorCollection(zone);
+        IgnoredAssetLookup ignoredAssetLookup;
+        AssetCreationContext context(zone, &creatorCollection, &ignoredAssetLookup);
+
+        map::T6MapEntitySource entitySource;
+        entitySource.m_entity_string = "{\n\"classname\" \"worldspawn\"\n}\n";
+        entitySource.m_path_nodes.push_back({{0.0f, 0.0f, 0.0f}, 0.0f, 0});
+        entitySource.m_path_nodes.push_back({{128.0f, 0.0f, 0.0f}, 0.0f, 0});
+        entitySource.m_path_nodes.push_back({{384.0f, 0.0f, 0.0f}, 0.0f, 0});
+
+        REQUIRE(map::EmitBaseWorldAssetsT6(context, zone, zone.m_name, entitySource, ZoneDefinitionMapType::ZM));
+
+        const auto assetName = map::GetT6MapWorldAssetName(zone.m_name);
+        const auto* gameWorldMpInfo = zone.m_pools.GetAsset<AssetGameWorldMp>(assetName);
+        REQUIRE(gameWorldMpInfo != nullptr);
+
+        const auto& path = gameWorldMpInfo->Asset()->path;
+        REQUIRE(path.nodes[0].constant.totalLinkCount == 1u);
+        REQUIRE(path.nodes[0].constant.Links[0].nodeNum == 1u);
+        REQUIRE(path.nodes[1].constant.totalLinkCount == 1u);
+        REQUIRE(path.nodes[1].constant.Links[0].nodeNum == 0u);
+        REQUIRE(path.nodes[2].constant.totalLinkCount == 0u);
+        REQUIRE(path.nodes[2].constant.Links == nullptr);
     }
 
     TEST_CASE("T6 multiplayer map emits base MP world asset", "[t6][map]")

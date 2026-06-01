@@ -8,6 +8,7 @@
 #include <sstream>
 #include <algorithm>
 #include <array>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -17,6 +18,8 @@ namespace
 {
     constexpr auto ENTITY_FILE = "bsp/entities.json";
     constexpr auto DEFAULT_ENTITY_STRING = "{\n\"classname\" \"worldspawn\"\n}\n{\n\"classname\" \"info_player_start\"\n\"origin\" \"0 0 0\"\n\"angles\" \"0 0 0\"\n}\n";
+    constexpr auto GENERATED_TOUCH_VOLUME_CONTENTS = 0x08000001;
+    constexpr auto GENERATED_TOUCH_VOLUME_SURFACE_FLAGS = 0;
 
     [[nodiscard]] const char* GetMapTypeName(const ZoneDefinitionMapType mapType)
     {
@@ -85,6 +88,26 @@ namespace
         std::istringstream stream(value);
         stream >> out;
         return !stream.fail();
+    }
+
+    [[nodiscard]] bool HasEntityKey(const json& entity, const char* key)
+    {
+        return entity.find(key) != entity.end();
+    }
+
+    [[nodiscard]] bool IsBrushModelHelperKey(const std::string& key)
+    {
+        return key == "box_mins" || key == "box_maxs" || key == "brush_contents" || key == "brush_surfaceflags";
+    }
+
+    [[nodiscard]] bool IsTouchVolumeBrushModelEntity(const json& entity)
+    {
+        const auto classname = entity.find("classname");
+        if (classname == entity.end() || !classname->is_string())
+            return false;
+
+        const auto value = classname->get<std::string>();
+        return value == "info_volume" || value.starts_with("trigger_");
     }
 
     [[nodiscard]] bool TryGetEntitiesArray(json& root, json*& entities, const ZoneDefinitionMapType mapType)
@@ -181,17 +204,108 @@ namespace
         return true;
     }
 
-    void AppendEntityString(const json& entities, std::string& entityString)
+    [[nodiscard]] bool TryBuildBoxBrushModel(const json& entity, const unsigned entityIndex, map::T6MapBrushModel& brushModel)
     {
-        for (const auto& entity : entities)
+        const auto hasMins = HasEntityKey(entity, "box_mins");
+        const auto hasMaxs = HasEntityKey(entity, "box_maxs");
+        const auto hasContents = HasEntityKey(entity, "brush_contents");
+        const auto hasSurfaceFlags = HasEntityKey(entity, "brush_surfaceflags");
+        if (!hasMins && !hasMaxs && !hasContents && !hasSurfaceFlags)
+            return false;
+
+        if (!hasMins || !hasMaxs)
         {
-            entityString.append("{\n");
-
-            for (const auto& element : entity.items())
-                entityString.append(std::format("\"{}\" \"{}\"\n", element.key(), element.value().get<std::string>()));
-
-            entityString.append("}\n");
+            con::error("T6 custom map entity {} defines brush model metadata but does not define both \"box_mins\" and \"box_maxs\"", entityIndex);
+            throw std::runtime_error("invalid brush model metadata");
         }
+
+        if (HasEntityKey(entity, "model"))
+        {
+            con::error("T6 custom map entity {} cannot define both an authored \"model\" key and generated brush model bounds", entityIndex);
+            throw std::runtime_error("invalid brush model metadata");
+        }
+
+        if (IsTouchVolumeBrushModelEntity(entity))
+        {
+            brushModel.m_contents = GENERATED_TOUCH_VOLUME_CONTENTS;
+            brushModel.m_surface_flags = GENERATED_TOUCH_VOLUME_SURFACE_FLAGS;
+        }
+
+        if (!TryParseFloat3(entity["box_mins"].get<std::string>(), brushModel.m_mins))
+        {
+            con::error("T6 custom map entity {} has invalid box_mins \"{}\"", entityIndex, entity["box_mins"].get<std::string>());
+            throw std::runtime_error("invalid brush model metadata");
+        }
+
+        if (!TryParseFloat3(entity["box_maxs"].get<std::string>(), brushModel.m_maxs))
+        {
+            con::error("T6 custom map entity {} has invalid box_maxs \"{}\"", entityIndex, entity["box_maxs"].get<std::string>());
+            throw std::runtime_error("invalid brush model metadata");
+        }
+
+        for (auto axis = 0u; axis < 3u; axis++)
+        {
+            if (brushModel.m_mins[axis] > brushModel.m_maxs[axis])
+            {
+                con::error("T6 custom map entity {} has box_mins greater than box_maxs on axis {}", entityIndex, axis);
+                throw std::runtime_error("invalid brush model metadata");
+            }
+        }
+
+        if (hasContents && !TryParseInt(entity["brush_contents"].get<std::string>(), brushModel.m_contents))
+        {
+            con::error("T6 custom map entity {} has invalid brush_contents \"{}\"", entityIndex, entity["brush_contents"].get<std::string>());
+            throw std::runtime_error("invalid brush model metadata");
+        }
+
+        if (hasSurfaceFlags && !TryParseInt(entity["brush_surfaceflags"].get<std::string>(), brushModel.m_surface_flags))
+        {
+            con::error("T6 custom map entity {} has invalid brush_surfaceflags \"{}\"", entityIndex, entity["brush_surfaceflags"].get<std::string>());
+            throw std::runtime_error("invalid brush model metadata");
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] bool BuildEntityStringAndBrushModels(const json& entities,
+                                                       std::string& entityString,
+                                                       std::vector<map::T6MapBrushModel>& brushModels)
+    {
+        try
+        {
+            for (auto entityIndex = 0u; entityIndex < entities.size(); entityIndex++)
+            {
+                const auto& entity = entities[entityIndex];
+                std::optional<map::T6MapBrushModel> brushModel;
+                map::T6MapBrushModel parsedBrushModel;
+                if (TryBuildBoxBrushModel(entity, entityIndex, parsedBrushModel))
+                    brushModel = parsedBrushModel;
+
+                entityString.append("{\n");
+
+                for (const auto& element : entity.items())
+                {
+                    if (IsBrushModelHelperKey(element.key()))
+                        continue;
+
+                    entityString.append(std::format("\"{}\" \"{}\"\n", element.key(), element.value().get<std::string>()));
+                }
+
+                if (brushModel)
+                {
+                    brushModels.emplace_back(*brushModel);
+                    entityString.append(std::format("\"model\" \"*{}\"\n", brushModels.size()));
+                }
+
+                entityString.append("}\n");
+            }
+        }
+        catch (const std::runtime_error&)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     void CollectZBarrierDependencies(const json& entities, std::vector<std::string>& dependencies)
@@ -348,7 +462,9 @@ namespace map
                 return std::nullopt;
 
             T6MapEntitySource result;
-            AppendEntityString(*entities, result.m_entity_string);
+            if (!BuildEntityStringAndBrushModels(*entities, result.m_entity_string, result.m_brush_models))
+                return std::nullopt;
+
             if (!TryCollectPathNodes(*entities, result.m_path_nodes))
                 return std::nullopt;
 
